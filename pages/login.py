@@ -14,7 +14,7 @@ def init_users():
             "user_id": "ADMIN_001",
             "name": "Admin User",
             "mobile": None,
-            "password": "admin123",  # Change in production
+            "password": "admin123",
             "role": "admin",
             "status": "active",
             "credit_limit": 0,
