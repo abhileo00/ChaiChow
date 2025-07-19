@@ -3,9 +3,8 @@ import pandas as pd
 from datetime import datetime
 
 def render():
-    st.header("🍽️ Place Order")
+    st.title("Place Order")
     
-    # Load data
     try:
         menu_df = pd.read_csv("data/menu.csv")
         users_df = pd.read_csv("data/users.csv")
@@ -17,11 +16,9 @@ def render():
         st.warning("No menu items available")
         return
     
-    # Display menu
-    with st.expander("📜 View Full Menu"):
+    with st.expander("View Full Menu"):
         st.dataframe(menu_df[['name', 'description', 'price']], hide_index=True)
     
-    # Order form
     with st.form("order_form", border=True):
         items = menu_df['name'].tolist()
         quantities = {item: 0 for item in items}
@@ -29,7 +26,6 @@ def render():
         if st.session_state.user_role == "staff":
             customer_mobile = st.text_input("Customer Mobile (for credit orders)")
         
-        # Dynamic quantity inputs
         st.subheader("Select Items")
         cols = st.columns(4)
         for i, item in enumerate(items):
@@ -49,13 +45,11 @@ def render():
                 st.error("Please select at least one item")
                 return
             
-            # Calculate total
             total = sum(
                 quantities[item] * menu_df[menu_df['name'] == item]['price'].values[0] 
                 for item in selected_items
             )
             
-            # Process credit orders
             customer_id = None
             if payment_mode == "Credit":
                 if st.session_state.user_role == "customer":
@@ -68,13 +62,11 @@ def render():
                         st.error("Customer not found")
                         return
                 
-                # Check credit limit
                 customer_data = users_df[users_df['user_id'] == customer_id].iloc[0]
                 new_balance = float(customer_data['current_balance']) + total
                 if new_balance > float(customer_data['credit_limit']):
-                    st.warning(f"Credit limit exceeded! Balance: ₹{new_balance}/₹{customer_data['credit_limit']}")
+                    st.warning(f"Credit limit exceeded! Balance: {new_balance}/{customer_data['credit_limit']}")
             
-            # Create order
             new_order = {
                 "order_id": f"ORD_{datetime.now().strftime('%Y%m%d%H%M%S')}",
                 "customer_id": customer_id,
@@ -87,18 +79,15 @@ def render():
                 "created_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             }
             
-            # Save order
             try:
                 orders_df = pd.read_csv("data/orders.csv")
                 orders_df = pd.concat([orders_df, pd.DataFrame([new_order])], ignore_index=True)
                 orders_df.to_csv("data/orders.csv", index=False)
                 
-                # Update customer balance if credit order
                 if payment_mode == "Credit":
                     users_df.loc[users_df['user_id'] == customer_id, 'current_balance'] = new_balance
                     users_df.to_csv("data/users.csv", index=False)
                 
-                st.success(f"✅ Order placed! Total: ₹{total:.2f}")
-                st.balloons()
+                st.success(f"Order placed! Total: {total:.2f}")
             except Exception as e:
                 st.error(f"Failed to save order: {str(e)}")
