@@ -9,14 +9,23 @@ USERS_FILE = os.path.join(DATA_DIR, "users.csv")
 
 def init_users():
     if not os.path.exists(USERS_FILE):
-        pd.DataFrame(columns=[
-            "user_id", "name", "mobile", "password", "role",
-            "status", "credit_limit", "current_balance", "created_at"
-        ]).to_csv(USERS_FILE, index=False)
+        # Create default admin account
+        default_admin = pd.DataFrame([{
+            "user_id": "ADMIN_001",
+            "name": "Admin User",
+            "mobile": None,
+            "password": "admin123",  # Change in production
+            "role": "admin",
+            "status": "active",
+            "credit_limit": 0,
+            "current_balance": 0,
+            "created_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        }])
+        default_admin.to_csv(USERS_FILE, index=False)
 
 def render():
     init_users()
-    st.title("🔐 Login to Chai Chow Corner")
+    st.title("Login to Chai Chow Corner")
     
     role = st.radio("I am a:", ["Admin", "Staff", "Customer"], horizontal=True)
     
