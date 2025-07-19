@@ -3,10 +3,10 @@ import pandas as pd
 
 def render():
     if st.session_state.user_role != "admin":
-        st.error("⛔ Admin access required")
+        st.error("Admin access required")
         return
 
-    st.header("💰 Customer Credit Management")
+    st.title("Customer Credit Management")
     try:
         users_df = pd.read_csv("data/users.csv")
         customers = users_df[users_df['role'] == "customer"]
@@ -24,9 +24,9 @@ def render():
     
     col1, col2 = st.columns(2)
     with col1:
-        st.metric("Current Balance", f"₹{customer['current_balance']:,.2f}")
+        st.metric("Current Balance", f"{customer['current_balance']:,.2f}")
     with col2:
-        st.metric("Credit Limit", f"₹{customer['credit_limit']:,.2f}")
+        st.metric("Credit Limit", f"{customer['credit_limit']:,.2f}")
     
     # Credit adjustment
     with st.form("credit_form", border=True):
@@ -42,5 +42,5 @@ def render():
             users_df.loc[users_df['user_id'] == customer_id, 'credit_limit'] = new_limit
             users_df.loc[users_df['user_id'] == customer_id, 'current_balance'] = new_balance
             users_df.to_csv("data/users.csv", index=False)
-            st.success(f"✅ Updated {customer['name']}'s credit limit to ₹{new_limit:,.2f}")
+            st.success(f"Updated {customer['name']}'s credit limit to {new_limit:,.2f}")
             st.rerun()
