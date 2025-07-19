@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
-from datetime import datetime
 import os
+from datetime import datetime
 
 DATA_DIR = "data"
 os.makedirs(DATA_DIR, exist_ok=True)
@@ -16,12 +16,12 @@ def init_users():
 
 def render():
     init_users()
-    st.title("🔐 Chai Chow Corner Login")
+    st.title("🔐 Login to Chai Chow Corner")
     
-    role = st.radio("Login As", ["Admin", "Staff", "Customer"], horizontal=True)
+    role = st.radio("I am a:", ["Admin", "Staff", "Customer"], horizontal=True)
     
     if role in ["Admin", "Staff"]:
-        with st.form(f"{role}_login"):
+        with st.form(f"{role.lower()}_login"):
             user_id = st.text_input("User ID")
             password = st.text_input("Password", type="password")
             
@@ -37,13 +37,13 @@ def render():
                     st.session_state.user_role = role.lower()
                     st.rerun()
                 else:
-                    st.error("❌ Invalid credentials")
+                    st.error("Invalid credentials")
     
     else:  # Customer
         tab1, tab2 = st.tabs(["Login", "Register"])
         
         with tab1:
-            with st.form("Customer Login"):
+            with st.form("customer_login"):
                 mobile = st.text_input("Mobile Number")
                 password = st.text_input("Password", type="password")
                 
@@ -58,13 +58,13 @@ def render():
                         st.session_state.user_role = 'customer'
                         st.rerun()
                     else:
-                        st.error("❌ Invalid credentials")
+                        st.error("Invalid credentials")
         
         with tab2:
-            with st.form("Customer Register"):
-                name = st.text_input("Full Name")
-                mobile = st.text_input("Mobile Number")
-                password = st.text_input("Password", type="password")
+            with st.form("customer_register"):
+                name = st.text_input("Full Name", key="reg_name")
+                mobile = st.text_input("Mobile Number", key="reg_mobile")
+                password = st.text_input("Password", type="password", key="reg_pass")
                 
                 if st.form_submit_button("Register"):
                     users_df = pd.read_csv(USERS_FILE)
@@ -80,8 +80,8 @@ def render():
                             "current_balance": 0,
                             "created_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                         }])
-                        users_df = pd.concat([users_df, new_user])
+                        users_df = pd.concat([users_df, new_user], ignore_index=True)
                         users_df.to_csv(USERS_FILE, index=False)
-                        st.success("✅ Registration successful! Please login.")
+                        st.success("Registration successful! Please login.")
                     else:
-                        st.error("❌ Mobile already registered")
+                        st.error("Mobile already registered")
