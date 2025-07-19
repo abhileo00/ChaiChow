@@ -6,8 +6,16 @@ def render():
     st.title("🍽️ Place Order")
     
     # Load data
-    menu_df = pd.read_csv("data/menu.csv")
-    users_df = pd.read_csv("data/users.csv")
+    try:
+        menu_df = pd.read_csv("data/menu.csv")
+        users_df = pd.read_csv("data/users.csv")
+    except:
+        st.error("Failed to load data files")
+        return
+    
+    if menu_df.empty:
+        st.warning("No menu items available")
+        return
     
     # Display menu
     st.subheader("Menu Items")
@@ -46,10 +54,29 @@ def render():
                 for item in selected_items
             )
             
-            # Process order
+            # Process credit orders
+            customer_id = None
+            if payment_mode == "Credit":
+                if st.session_state.user_role == "customer":
+                    customer_id = st.session_state.user_id
+                elif st.session_state.user_role == "staff":
+                    customer = users_df[users_df['mobile'] == customer_mobile]
+                    if not customer.empty:
+                        customer_id = customer.iloc[0]['user_id']
+                    else:
+                        st.error("Customer not found")
+                        return
+                
+                # Check credit limit
+                customer_data = users_df[users_df['user_id'] == customer_id].iloc[0]
+                new_balance = float(customer_data['current_balance']) + total
+                if new_balance > float(customer_data['credit_limit']):
+                    st.warning(f"Credit limit exceeded! Balance: ₹{new_balance}/₹{customer_data['credit_limit']}")
+            
+            # Create order
             new_order = {
                 "order_id": f"ORD_{datetime.now().strftime('%Y%m%d%H%M%S')}",
-                "customer_id": st.session_state.user_id if payment_mode == "Credit" else None,
+                "customer_id": customer_id,
                 "staff_id": st.session_state.user_id if st.session_state.user_role == "staff" else None,
                 "items": ",".join(selected_items),
                 "quantities": ",".join(str(quantities[i]) for i in selected_items),
@@ -60,8 +87,16 @@ def render():
             }
             
             # Save order
-            orders_df = pd.read_csv("data/orders.csv")
-            orders_df = pd.concat([orders_df, pd.DataFrame([new_order])])
-            orders_df.to_csv("data/orders.csv", index=False)
-            
-            st.success(f"✅ Order placed! Total: ₹{total:.2f}")
+            try:
+                orders_df = pd.read_csv("data/orders.csv")
+                orders_df = pd.concat([orders_df, pd.DataFrame([new_order])], ignore_index=True)
+                orders_df.to_csv("data/orders.csv", index=False)
+                
+                # Update customer balance if credit order
+                if payment_mode == "Credit":
+                    users_df.loc[users_df['user_id'] == customer_id, 'current_balance'] = new_balance
+                    users_df.to_csv("data/users.csv", index=False)
+                
+                st.success(f"✅ Order placed! Total: ₹{total:.2f}")
+            except Exception as e:
+                st.error(f"Failed to save order: {str(e)}")
