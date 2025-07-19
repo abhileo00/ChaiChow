@@ -29,7 +29,7 @@ def render():
         st.metric("Credit Limit", f"{customer['credit_limit']:,.2f}")
     
     # Credit adjustment
-    with st.form("credit_form", border=True):
+    with st.form("credit_form"):
         new_limit = st.number_input("New Credit Limit", 
                                   value=float(customer['credit_limit']),
                                   min_value=0.0)
@@ -37,10 +37,9 @@ def render():
                                            value=0.0,
                                            help="Positive to add credit, negative to deduct")
         
-        if st.form_submit_button("Update Credit", use_container_width=True):
+        if st.form_submit_button("Update Credit"):
             new_balance = float(customer['current_balance']) + balance_adjustment
             users_df.loc[users_df['user_id'] == customer_id, 'credit_limit'] = new_limit
             users_df.loc[users_df['user_id'] == customer_id, 'current_balance'] = new_balance
             users_df.to_csv("data/users.csv", index=False)
             st.success(f"Updated {customer['name']}'s credit limit to {new_limit:,.2f}")
-            st.rerun()
