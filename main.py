@@ -8,27 +8,6 @@ from pages.reports import render as reports_page
 from pages.feedback import render as feedback_page
 from pages.credit import render as credit_page
 
-# Custom CSS for tabs
-st.markdown("""
-<style>
-.stTabs [data-baseweb="tab-list"] {
-    gap: 8px;
-}
-.stTabs [data-baseweb="tab"] {
-    padding: 10px 20px;
-    border-radius: 4px 4px 0 0;
-    transition: all 0.2s;
-}
-.stTabs [aria-selected="true"] {
-    background-color: #ff4b4b;
-    color: white;
-}
-.stTabs [data-baseweb="tab"]:hover {
-    background-color: #f0f2f6;
-}
-</style>
-""", unsafe_allow_html=True)
-
 # Initialize session state
 if 'user_id' not in st.session_state:
     st.session_state.user_id = None
@@ -38,15 +17,15 @@ def main():
     if not st.session_state.user_id:
         login_page()
     else:
-        # Header with logout
-        header_col1, header_col2 = st.columns([5,1])
-        with header_col1:
-            st.title(f"Chai Chow Corner - {st.session_state.user_role.capitalize()} View")
-        with header_col2:
-            if st.button("Logout", use_container_width=True):
+        # Header with logout button
+        col1, col2 = st.columns([5, 1])
+        with col1:
+            st.title(f"Chai Chow Corner - {st.session_state.user_role.capitalize()} Dashboard")
+        with col2:
+            if st.button("Logout"):
                 st.session_state.clear()
                 st.rerun()
-        
+
         # Role-based tabs
         if st.session_state.user_role == "admin":
             tabs = st.tabs([
