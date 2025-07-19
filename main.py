@@ -19,34 +19,44 @@ def main():
     if not st.session_state.user_id:
         login_page.render()
     else:
-        st.sidebar.title(f"👤 {st.session_state.user_role.capitalize()} Panel")
-        if st.sidebar.button("🚪 Logout"):
-            st.session_state.clear()
-            st.rerun()
-
-        # Role-based navigation
-        pages = {
-            "admin": ["Orders", "User Management", "Menu", "Inventory", "Reports", "Feedback", "Credit"],
-            "staff": ["Orders", "Menu", "Inventory", "Feedback"],
-            "customer": ["Orders", "Menu", "Feedback"]
-        }
+        st.title(f"Chai Chow Corner - {st.session_state.user_role.capitalize()} Dashboard")
         
-        selection = st.sidebar.selectbox("Navigation", pages[st.session_state.user_role])
+        # Logout button at top right
+        col1, col2 = st.columns([5,1])
+        with col2:
+            if st.button("🚪 Logout"):
+                st.session_state.clear()
+                st.rerun()
         
-        if selection == "Orders":
-            orders_page.render()
-        elif selection == "User Management":
-            user_management_page.render()
-        elif selection == "Menu":
-            menu_page.render()
-        elif selection == "Inventory":
-            inventory_page.render()
-        elif selection == "Reports":
-            reports_page.render()
-        elif selection == "Feedback":
-            feedback_page.render()
-        elif selection == "Credit":
-            credit_page.render()
+        # Role-based tab selection
+        if st.session_state.user_role == "admin":
+            tabs = st.tabs([
+                "Orders", "User Management", "Menu", 
+                "Inventory", "Reports", "Feedback", "Credit"
+            ])
+            
+            with tabs[0]: orders_page.render()
+            with tabs[1]: user_management_page.render()
+            with tabs[2]: menu_page.render()
+            with tabs[3]: inventory_page.render()
+            with tabs[4]: reports_page.render()
+            with tabs[5]: feedback_page.render()
+            with tabs[6]: credit_page.render()
+            
+        elif st.session_state.user_role == "staff":
+            tabs = st.tabs(["Orders", "Menu", "Inventory", "Feedback"])
+            
+            with tabs[0]: orders_page.render()
+            with tabs[1]: menu_page.render()
+            with tabs[2]: inventory_page.render()
+            with tabs[3]: feedback_page.render()
+            
+        else:  # customer
+            tabs = st.tabs(["Orders", "Menu", "Feedback"])
+            
+            with tabs[0]: orders_page.render()
+            with tabs[1]: menu_page.render()
+            with tabs[2]: feedback_page.render()
 
 if __name__ == "__main__":
     main()
