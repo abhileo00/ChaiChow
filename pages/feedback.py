@@ -4,7 +4,7 @@ from datetime import datetime
 import plotly.express as px
 
 def render():
-    st.header("💬 Customer Feedback")
+    st.title("Customer Feedback")
     try:
         feedback_df = pd.read_csv("data/feedback.csv")
     except:
@@ -33,21 +33,20 @@ def render():
                 }
                 feedback_df = pd.concat([feedback_df, pd.DataFrame([new_feedback])], ignore_index=True)
                 feedback_df.to_csv("data/feedback.csv", index=False)
-                st.success("✅ Thank you for your feedback!")
-                st.balloons()
+                st.success("Thank you for your feedback!")
     
     with tab2:
         if st.session_state.user_role not in ["admin", "staff"]:
-            st.error("⛔ Staff access required")
+            st.error("Staff access required")
             return
         
         st.dataframe(feedback_df, hide_index=True, use_container_width=True)
         
         # Feedback stats
         if not feedback_df.empty:
-            st.subheader("📊 Feedback Statistics")
+            st.subheader("Feedback Statistics")
             avg_rating = feedback_df['rating'].mean()
-            st.metric("Average Rating", f"{avg_rating:.1f} ★")
+            st.metric("Average Rating", f"{avg_rating:.1f} stars")
             
             fig = px.histogram(feedback_df, x='rating', 
                              title="Rating Distribution",
