@@ -8,7 +8,7 @@ def render():
         st.error("⛔ Admin access required")
         return
 
-    st.title("📊 Sales Reports")
+    st.header("📊 Sales Reports")
     try:
         orders_df = pd.read_csv("data/orders.csv")
         orders_df['created_at'] = pd.to_datetime(orders_df['created_at'])
@@ -51,10 +51,17 @@ def render():
         'total_amount': 'sum'
     }).rename(columns={'order_id': 'orders', 'total_amount': 'revenue'}).reset_index()
     
-    fig1 = px.line(daily, x='created_at', y='orders', title="Orders per Day")
-    fig2 = px.line(daily, x='created_at', y='revenue', title="Revenue per Day")
-    st.plotly_chart(fig1, use_container_width=True)
-    st.plotly_chart(fig2, use_container_width=True)
+    tab1, tab2 = st.tabs(["Orders", "Revenue"])
+    with tab1:
+        st.plotly_chart(
+            px.line(daily, x='created_at', y='orders', title="Orders per Day"),
+            use_container_width=True
+        )
+    with tab2:
+        st.plotly_chart(
+            px.line(daily, x='created_at', y='revenue', title="Revenue per Day"),
+            use_container_width=True
+        )
     
     # Payment analysis
     st.subheader("💳 Payment Analysis")
@@ -65,8 +72,14 @@ def render():
     
     col1, col2 = st.columns(2)
     with col1:
-        st.plotly_chart(px.pie(payment_df, values='orders', names='payment_mode', 
-                             title="Orders by Payment Mode"), use_container_width=True)
+        st.plotly_chart(
+            px.pie(payment_df, values='orders', names='payment_mode', 
+                 title="Orders by Payment Mode"),
+            use_container_width=True
+        )
     with col2:
-        st.plotly_chart(px.pie(payment_df, values='revenue', names='payment_mode',
-                             title="Revenue by Payment Mode"), use_container_width=True)
+        st.plotly_chart(
+            px.pie(payment_df, values='revenue', names='payment_mode',
+                 title="Revenue by Payment Mode"),
+            use_container_width=True
+        )
