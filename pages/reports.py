@@ -53,15 +53,9 @@ def render():
     
     tab1, tab2 = st.tabs(["Orders", "Revenue"])
     with tab1:
-        st.plotly_chart(
-            px.line(daily, x='created_at', y='orders', title="Orders per Day"),
-            use_container_width=True
-        )
+        st.plotly_chart(px.line(daily, x='created_at', y='orders', title="Orders per Day"))
     with tab2:
-        st.plotly_chart(
-            px.line(daily, x='created_at', y='revenue', title="Revenue per Day"),
-            use_container_width=True
-        )
+        st.plotly_chart(px.line(daily, x='created_at', y='revenue', title="Revenue per Day"))
     
     # Payment analysis
     st.subheader("Payment Analysis")
@@ -72,14 +66,6 @@ def render():
     
     col1, col2 = st.columns(2)
     with col1:
-        st.plotly_chart(
-            px.pie(payment_df, values='orders', names='payment_mode', 
-                 title="Orders by Payment Mode"),
-            use_container_width=True
-        )
+        st.plotly_chart(px.pie(payment_df, values='orders', names='payment_mode', title="Orders by Payment Mode"))
     with col2:
-        st.plotly_chart(
-            px.pie(payment_df, values='revenue', names='payment_mode',
-                 title="Revenue by Payment Mode"),
-            use_container_width=True
-        )
+        st.plotly_chart(px.pie(payment_df, values='revenue', names='payment_mode', title="Revenue by Payment Mode"))
