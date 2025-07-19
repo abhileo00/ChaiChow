@@ -1,61 +1,52 @@
 import streamlit as st
 from pages import (
-    1_Login, 
-    2_Orders,
-    3_User_Management,
-    4_Menu_Management,
-    5_Inventory,
-    6_Reports,
-    7_Feedback,
-    8_Customer_Credit
+    a_login as login_page,
+    b_orders as orders_page,
+    c_user_management as user_management_page,
+    d_menu as menu_page,
+    e_inventory as inventory_page,
+    f_reports as reports_page,
+    g_feedback as feedback_page,
+    h_credit as credit_page
 )
 
-# Session state initialization
+# Initialize session state
 if 'user_id' not in st.session_state:
     st.session_state.user_id = None
     st.session_state.user_role = None
 
-# Page router
 def main():
     if not st.session_state.user_id:
-        1_Login.render()
+        login_page.render()
     else:
-        user_role = st.session_state.user_role
-        
-        # Sidebar navigation
-        st.sidebar.title(f"Logged in as: {user_role.capitalize()}")
-        if st.sidebar.button("Logout"):
+        st.sidebar.title(f"👤 {st.session_state.user_role.capitalize()} Panel")
+        if st.sidebar.button("🚪 Logout"):
             st.session_state.clear()
             st.rerun()
 
-        # Role-based page access
-        if user_role == "admin":
-            page = st.sidebar.selectbox("Navigation", [
-                "Orders", "User Management", "Menu", 
-                "Inventory", "Reports", "Feedback", "Customer Credit"
-            ])
-        elif user_role == "staff":
-            page = st.sidebar.selectbox("Navigation", [
-                "Orders", "Menu", "Inventory", "Feedback"
-            ])
-        else:  # customer
-            page = st.sidebar.selectbox("Navigation", ["Orders", "Menu", "Feedback"])
-
-        # Render selected page
-        if page == "Orders":
-            2_Orders.render()
-        elif page == "User Management":
-            3_User_Management.render()
-        elif page == "Menu":
-            4_Menu_Management.render()
-        elif page == "Inventory":
-            5_Inventory.render()
-        elif page == "Reports":
-            6_Reports.render()
-        elif page == "Feedback":
-            7_Feedback.render()
-        elif page == "Customer Credit":
-            8_Customer_Credit.render()
+        # Role-based navigation
+        pages = {
+            "admin": ["Orders", "User Management", "Menu", "Inventory", "Reports", "Feedback", "Credit"],
+            "staff": ["Orders", "Menu", "Inventory", "Feedback"],
+            "customer": ["Orders", "Menu", "Feedback"]
+        }
+        
+        selection = st.sidebar.selectbox("Navigation", pages[st.session_state.user_role])
+        
+        if selection == "Orders":
+            orders_page.render()
+        elif selection == "User Management":
+            user_management_page.render()
+        elif selection == "Menu":
+            menu_page.render()
+        elif selection == "Inventory":
+            inventory_page.render()
+        elif selection == "Reports":
+            reports_page.render()
+        elif selection == "Feedback":
+            feedback_page.render()
+        elif selection == "Credit":
+            credit_page.render()
 
 if __name__ == "__main__":
     main()
