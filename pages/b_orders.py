@@ -3,7 +3,7 @@ import pandas as pd
 from datetime import datetime
 
 def render():
-    st.title("🍽️ Place Order")
+    st.header("🍽️ Place Order")
     
     # Load data
     try:
@@ -18,11 +18,11 @@ def render():
         return
     
     # Display menu
-    st.subheader("Menu Items")
-    st.dataframe(menu_df[['name', 'price']], hide_index=True)
+    with st.expander("📜 View Full Menu"):
+        st.dataframe(menu_df[['name', 'description', 'price']], hide_index=True)
     
     # Order form
-    with st.form("order_form"):
+    with st.form("order_form", border=True):
         items = menu_df['name'].tolist()
         quantities = {item: 0 for item in items}
         
@@ -30,6 +30,7 @@ def render():
             customer_mobile = st.text_input("Customer Mobile (for credit orders)")
         
         # Dynamic quantity inputs
+        st.subheader("Select Items")
         cols = st.columns(4)
         for i, item in enumerate(items):
             quantities[item] = cols[i % 4].number_input(
@@ -42,7 +43,7 @@ def render():
             disabled=st.session_state.user_role == "staff" and not customer_mobile
         )
         
-        if st.form_submit_button("Place Order"):
+        if st.form_submit_button("Place Order", use_container_width=True):
             selected_items = [item for item, qty in quantities.items() if qty > 0]
             if not selected_items:
                 st.error("Please select at least one item")
@@ -98,5 +99,6 @@ def render():
                     users_df.to_csv("data/users.csv", index=False)
                 
                 st.success(f"✅ Order placed! Total: ₹{total:.2f}")
+                st.balloons()
             except Exception as e:
                 st.error(f"Failed to save order: {str(e)}")
