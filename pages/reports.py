@@ -5,10 +5,10 @@ from datetime import datetime, timedelta
 
 def render():
     if st.session_state.user_role != "admin":
-        st.error("⛔ Admin access required")
+        st.error("Admin access required")
         return
 
-    st.header("📊 Sales Reports")
+    st.title("Sales Reports")
     try:
         orders_df = pd.read_csv("data/orders.csv")
         orders_df['created_at'] = pd.to_datetime(orders_df['created_at'])
@@ -38,14 +38,14 @@ def render():
     total_revenue = filtered['total_amount'].sum()
     avg_order = total_revenue / total_orders
     
-    st.subheader(f"📅 Period: {start_date} to {end_date}")
+    st.subheader(f"Period: {start_date} to {end_date}")
     col1, col2, col3 = st.columns(3)
     col1.metric("Total Orders", total_orders)
-    col2.metric("Total Revenue", f"₹{total_revenue:,.2f}")
-    col3.metric("Avg Order Value", f"₹{avg_order:,.2f}")
+    col2.metric("Total Revenue", f"{total_revenue:,.2f}")
+    col3.metric("Avg Order Value", f"{avg_order:,.2f}")
     
     # Daily trends
-    st.subheader("📈 Daily Trends")
+    st.subheader("Daily Trends")
     daily = filtered.set_index('created_at').resample('D').agg({
         'order_id': 'count',
         'total_amount': 'sum'
@@ -64,7 +64,7 @@ def render():
         )
     
     # Payment analysis
-    st.subheader("💳 Payment Analysis")
+    st.subheader("Payment Analysis")
     payment_df = filtered.groupby('payment_mode').agg({
         'order_id': 'count',
         'total_amount': 'sum'
