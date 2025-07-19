@@ -62,9 +62,9 @@ def render():
         
         with tab2:
             with st.form("customer_register"):
-                name = st.text_input("Full Name", key="reg_name")
-                mobile = st.text_input("Mobile Number", key="reg_mobile")
-                password = st.text_input("Password", type="password", key="reg_pass")
+                name = st.text_input("Full Name")
+                mobile = st.text_input("Mobile Number")
+                password = st.text_input("Password", type="password")
                 
                 if st.form_submit_button("Register"):
                     users_df = pd.read_csv(USERS_FILE)
