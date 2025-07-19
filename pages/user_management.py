@@ -4,10 +4,10 @@ from datetime import datetime
 
 def render():
     if st.session_state.user_role != "admin":
-        st.error("⛔ Admin access required")
+        st.error("Admin access required")
         return
 
-    st.header("👥 User Management")
+    st.title("User Management")
     try:
         users_df = pd.read_csv("data/users.csv")
     except:
@@ -45,7 +45,7 @@ def render():
                     }
                     users_df = pd.concat([users_df, pd.DataFrame([new_user])], ignore_index=True)
                     users_df.to_csv("data/users.csv", index=False)
-                    st.success("✅ User created successfully!")
+                    st.success("User created successfully!")
                     st.rerun()
         
         else:  # Edit User
@@ -79,5 +79,5 @@ def render():
                         users_df.loc[users_df['user_id'] == user_id, 'password'] = new_password
                     
                     users_df.to_csv("data/users.csv", index=False)
-                    st.success("✅ User updated successfully!")
+                    st.success("User updated successfully!")
                     st.rerun()
