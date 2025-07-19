@@ -3,7 +3,7 @@ import pandas as pd
 from datetime import datetime
 
 def render():
-    st.header("📜 Menu Management")
+    st.title("Menu Management")
     try:
         menu_df = pd.read_csv("data/menu.csv")
     except:
@@ -17,7 +17,7 @@ def render():
     
     with tab2:
         if st.session_state.user_role not in ["admin", "staff"]:
-            st.error("⛔ Staff access required")
+            st.error("Staff access required")
             return
         
         action = st.radio("Action", ["Add Item", "Edit Item"], horizontal=True)
@@ -44,7 +44,7 @@ def render():
                     }
                     menu_df = pd.concat([menu_df, pd.DataFrame([new_item])], ignore_index=True)
                     menu_df.to_csv("data/menu.csv", index=False)
-                    st.success("✅ Item added to menu!")
+                    st.success("Item added to menu!")
                     st.rerun()
         
         else:  # Edit Item
@@ -67,5 +67,5 @@ def render():
                     menu_df.loc[menu_df['item_id'] == item_id, 'prep_time'] = prep_time
                     menu_df.loc[menu_df['item_id'] == item_id, 'available'] = available
                     menu_df.to_csv("data/menu.csv", index=False)
-                    st.success("✅ Menu item updated!")
+                    st.success("Menu item updated!")
                     st.rerun()
