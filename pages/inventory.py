@@ -3,7 +3,7 @@ import pandas as pd
 from datetime import datetime
 
 def render():
-    st.header("📦 Inventory Management")
+    st.title("Inventory Management")
     try:
         inventory_df = pd.read_csv("data/inventory.csv")
     except:
@@ -16,14 +16,14 @@ def render():
         if not inventory_df.empty:
             low_stock = inventory_df[inventory_df['quantity'] <= inventory_df['threshold']]
             if not low_stock.empty:
-                st.warning("🚨 Low Stock Alert!")
+                st.warning("Low Stock Alert!")
                 st.dataframe(low_stock, hide_index=True, use_container_width=True)
         
         st.dataframe(inventory_df, hide_index=True, use_container_width=True)
     
     with tab2:
         if st.session_state.user_role not in ["admin", "staff"]:
-            st.error("⛔ Staff access required")
+            st.error("Staff access required")
             return
         
         action = st.radio("Action", ["Add Item", "Update Stock"], horizontal=True)
@@ -46,7 +46,7 @@ def render():
                     }
                     inventory_df = pd.concat([inventory_df, pd.DataFrame([new_item])], ignore_index=True)
                     inventory_df.to_csv("data/inventory.csv", index=False)
-                    st.success("✅ Inventory item added!")
+                    st.success("Inventory item added!")
                     st.rerun()
         
         else:  # Update Stock
@@ -64,5 +64,5 @@ def render():
                     inventory_df.loc[inventory_df['item_id'] == item_id, 'threshold'] = new_threshold
                     inventory_df.loc[inventory_df['item_id'] == item_id, 'last_updated'] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                     inventory_df.to_csv("data/inventory.csv", index=False)
-                    st.success(f"✅ Updated stock to {new_quantity} {item['unit']}")
+                    st.success(f"Updated stock to {new_quantity} {item['unit']}")
                     st.rerun()
