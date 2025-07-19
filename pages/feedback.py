@@ -14,14 +14,13 @@ def render():
     tab1, tab2 = st.tabs(["Submit Feedback", "View Feedback"])
     
     with tab1:
-        with st.form("feedback_form", border=True):
+        with st.form("feedback_form"):
             name = st.text_input("Your Name (optional)")
             rating = st.slider("Rating (1-5 stars)", 1, 5, 5)
-            feedback_type = st.selectbox("Type", 
-                                       ["General", "Compliment", "Complaint", "Suggestion"])
+            feedback_type = st.selectbox("Type", ["General", "Compliment", "Complaint", "Suggestion"])
             comments = st.text_area("Your Feedback")
             
-            if st.form_submit_button("Submit", use_container_width=True):
+            if st.form_submit_button("Submit"):
                 new_feedback = {
                     "feedback_id": f"FB_{datetime.now().strftime('%Y%m%d%H%M%S')}",
                     "user_id": st.session_state.user_id,
@@ -40,15 +39,12 @@ def render():
             st.error("Staff access required")
             return
         
-        st.dataframe(feedback_df, hide_index=True, use_container_width=True)
+        st.dataframe(feedback_df)
         
-        # Feedback stats
         if not feedback_df.empty:
             st.subheader("Feedback Statistics")
             avg_rating = feedback_df['rating'].mean()
             st.metric("Average Rating", f"{avg_rating:.1f} stars")
             
-            fig = px.histogram(feedback_df, x='rating', 
-                             title="Rating Distribution",
-                             nbins=5, range_x=[1,6])
-            st.plotly_chart(fig, use_container_width=True)
+            fig = px.histogram(feedback_df, x='rating', title="Rating Distribution", nbins=5, range_x=[1,6])
+            st.plotly_chart(fig)
