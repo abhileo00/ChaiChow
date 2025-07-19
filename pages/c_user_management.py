@@ -7,19 +7,23 @@ def render():
         st.error("⛔ Admin access required")
         return
 
-    st.title("👥 User Management")
-    users_df = pd.read_csv("data/users.csv")
+    st.header("👥 User Management")
+    try:
+        users_df = pd.read_csv("data/users.csv")
+    except:
+        st.error("Failed to load user data")
+        return
     
     tab1, tab2 = st.tabs(["View Users", "Manage Users"])
     
     with tab1:
-        st.dataframe(users_df, hide_index=True)
+        st.dataframe(users_df, hide_index=True, use_container_width=True)
     
     with tab2:
         action = st.radio("Action", ["Create User", "Edit User"], horizontal=True)
         
         if action == "Create User":
-            with st.form("create_user"):
+            with st.form("create_user", border=True):
                 name = st.text_input("Full Name")
                 role = st.selectbox("Role", ["admin", "staff", "customer"])
                 mobile = st.text_input("Mobile") if role == "customer" else ""
@@ -27,7 +31,7 @@ def render():
                 status = st.selectbox("Status", ["active", "inactive"])
                 credit_limit = st.number_input("Credit Limit", value=1000) if role == "customer" else 0
                 
-                if st.form_submit_button("Create"):
+                if st.form_submit_button("Create User", use_container_width=True):
                     new_user = {
                         "user_id": f"{role.upper()}_{datetime.now().strftime('%Y%m%d%H%M%S')}",
                         "name": name,
@@ -42,12 +46,13 @@ def render():
                     users_df = pd.concat([users_df, pd.DataFrame([new_user])], ignore_index=True)
                     users_df.to_csv("data/users.csv", index=False)
                     st.success("✅ User created successfully!")
+                    st.rerun()
         
         else:  # Edit User
             user_id = st.selectbox("Select User", users_df['user_id'])
             user = users_df[users_df['user_id'] == user_id].iloc[0]
             
-            with st.form("edit_user"):
+            with st.form("edit_user", border=True):
                 st.write(f"Editing: {user['name']} ({user['role']})")
                 name = st.text_input("Name", value=user['name'])
                 status = st.selectbox("Status", ["active", "inactive"], 
@@ -62,7 +67,7 @@ def render():
                 new_password = st.text_input("New Password", type="password", 
                                           placeholder="Leave blank to keep current")
                 
-                if st.form_submit_button("Update"):
+                if st.form_submit_button("Update User", use_container_width=True):
                     users_df.loc[users_df['user_id'] == user_id, 'name'] = name
                     users_df.loc[users_df['user_id'] == user_id, 'status'] = status
                     
@@ -75,3 +80,4 @@ def render():
                     
                     users_df.to_csv("data/users.csv", index=False)
                     st.success("✅ User updated successfully!")
+                    st.rerun()
