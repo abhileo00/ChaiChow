@@ -1,50 +1,55 @@
 import streamlit as st
 import pandas as pd
 from datetime import datetime
-import plotly.express as px
+from utils.helpers import load_data, save_data
 
-def render():
-    st.title("Customer Feedback")
-    try:
-        feedback_df = pd.read_csv("data/feedback.csv")
-    except:
-        st.error("Failed to load feedback data")
-        return
+st.set_page_config(page_title="Feedback", layout="wide")
+
+# Authentication check
+if 'user_role' not in st.session_state:
+    st.switch_page("app.py")
+
+feedback = load_data('feedback')
+
+st.title("Feedback")
+
+# Feedback form
+with st.form("feedback_form"):
+    st.subheader("Submit Feedback")
+    rating = st.slider("Rating (1-5 stars)", 1, 5, 3)
+    feedback_type = st.selectbox("Feedback Type", 
+                               ["General", "Food", "Service", "Ambience", "Other"])
+    comments = st.text_area("Your Feedback")
+    name = st.text_input("Name (optional)")
     
-    tab1, tab2 = st.tabs(["Submit Feedback", "View Feedback"])
+    if st.form_submit_button("Submit"):
+        new_feedback = {
+            'feedback_id': len(feedback) + 1,
+            'user_id': st.session_state.get('user_id', 'anonymous'),
+            'rating': rating,
+            'type': feedback_type,
+            'comments': comments,
+            'name': name if name else 'Anonymous',
+            'timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        }
+        feedback = pd.concat([feedback, pd.DataFrame([new_feedback])], ignore_index=True)
+        save_data(feedback, 'feedback')
+        st.success("Thank you for your feedback!")
+
+# View feedback (admin/staff)
+if st.session_state.user_role in ["admin", "staff"]:
+    st.subheader("Customer Feedback")
     
-    with tab1:
-        with st.form("feedback_form"):
-            name = st.text_input("Your Name (optional)")
-            rating = st.slider("Rating (1-5 stars)", 1, 5, 5)
-            feedback_type = st.selectbox("Type", ["General", "Compliment", "Complaint", "Suggestion"])
-            comments = st.text_area("Your Feedback")
-            
-            if st.form_submit_button("Submit"):
-                new_feedback = {
-                    "feedback_id": f"FB_{datetime.now().strftime('%Y%m%d%H%M%S')}",
-                    "user_id": st.session_state.user_id,
-                    "name": name if name else "Anonymous",
-                    "rating": rating,
-                    "type": feedback_type,
-                    "comment": comments,
-                    "created_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                }
-                feedback_df = pd.concat([feedback_df, pd.DataFrame([new_feedback])], ignore_index=True)
-                feedback_df.to_csv("data/feedback.csv", index=False)
-                st.success("Thank you for your feedback!")
+    # Filters
+    min_rating = st.slider("Minimum rating", 1, 5, 1)
+    type_filter = st.selectbox("Filter by type", ["All"] + feedback['type'].unique().tolist())
     
-    with tab2:
-        if st.session_state.user_role not in ["admin", "staff"]:
-            st.error("Staff access required")
-            return
-        
-        st.dataframe(feedback_df)
-        
-        if not feedback_df.empty:
-            st.subheader("Feedback Statistics")
-            avg_rating = feedback_df['rating'].mean()
-            st.metric("Average Rating", f"{avg_rating:.1f} stars")
-            
-            fig = px.histogram(feedback_df, x='rating', title="Rating Distribution", nbins=5, range_x=[1,6])
-            st.plotly_chart(fig)
+    filtered_feedback = feedback[feedback['rating'] >= min_rating]
+    if type_filter != "All":
+        filtered_feedback = filtered_feedback[filtered_feedback['type'] == type_filter]
+    
+    st.dataframe(filtered_feedback.sort_values('timestamp', ascending=False), hide_index=True)
+    
+    # Stats
+    avg_rating = feedback['rating'].mean()
+    st.metric("Average Rating", f"{avg_rating:.1f} stars")
