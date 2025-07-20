@@ -1,80 +1,93 @@
 import streamlit as st
 import pandas as pd
-from datetime import datetime
+from utils.helpers import load_data, save_data
 
-def render():
-    if st.session_state.user_role != "admin":
-        st.error("Admin access required")
-        return
+st.set_page_config(page_title="User Management", layout="wide")
 
-    st.title("User Management")
-    try:
-        users_df = pd.read_csv("data/users.csv")
-    except:
-        st.error("Failed to load user data")
-        return
-    
-    tab1, tab2 = st.tabs(["View Users", "Manage Users"])
-    
-    with tab1:
-        st.dataframe(users_df)
-    
-    with tab2:
-        action = st.radio("Action", ["Create User", "Edit User"], horizontal=True)
+# Admin access only
+if 'user_role' not in st.session_state or st.session_state.user_role != "admin":
+    st.warning("Unauthorized access")
+    st.switch_page("app.py")
+
+users = load_data('users')
+
+st.title("User Management")
+
+# Create tabs
+add_tab, manage_tab, credit_tab = st.tabs(["Add User", "Manage Users", "Credit Management"])
+
+with add_tab:
+    with st.form("add_user_form"):
+        st.subheader("Add New User")
+        role = st.selectbox("User Role", ["admin", "staff", "customer"])
+        user_id = st.text_input("Username")
+        name = st.text_input("Full Name")
+        password = st.text_input("Password", type="password")
+        email = st.text_input("Email")
         
-        if action == "Create User":
-            with st.form("create_user"):
-                name = st.text_input("Full Name")
-                role = st.selectbox("Role", ["admin", "staff", "customer"])
-                mobile = st.text_input("Mobile") if role == "customer" else ""
-                password = st.text_input("Password", type="password")
-                status = st.selectbox("Status", ["active", "inactive"])
-                credit_limit = st.number_input("Credit Limit", value=1000) if role == "customer" else 0
-                
-                if st.form_submit_button("Create User"):
-                    new_user = {
-                        "user_id": f"{role.upper()}_{datetime.now().strftime('%Y%m%d%H%M%S')}",
-                        "name": name,
-                        "mobile": mobile,
-                        "password": password,
-                        "role": role,
-                        "status": status,
-                        "credit_limit": credit_limit,
-                        "current_balance": 0,
-                        "created_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                    }
-                    users_df = pd.concat([users_df, pd.DataFrame([new_user])], ignore_index=True)
-                    users_df.to_csv("data/users.csv", index=False)
-                    st.success("User created successfully!")
+        if role == "customer":
+            credit_limit = st.number_input("Credit Limit", min_value=0, value=1000)
         
-        else:  # Edit User
-            user_id = st.selectbox("Select User", users_df['user_id'])
-            user = users_df[users_df['user_id'] == user_id].iloc[0]
+        if st.form_submit_button("Create User"):
+            if user_id in users['user_id'].values:
+                st.error("Username already exists")
+            else:
+                new_user = {
+                    'user_id': user_id,
+                    'name': name,
+                    'password': password,
+                    'role': role,
+                    'email': email,
+                    'status': 'active',
+                    'credit_limit': credit_limit if role == "customer" else 0,
+                    'current_balance': 0
+                }
+                users = pd.concat([users, pd.DataFrame([new_user])], ignore_index=True)
+                save_data(users, 'users')
+                st.success("User created successfully")
+
+with manage_tab:
+    st.subheader("User List")
+    
+    # Filters
+    role_filter = st.selectbox("Filter by role", ["All", "admin", "staff", "customer"])
+    status_filter = st.selectbox("Filter by status", ["All", "active", "inactive"])
+    
+    filtered_users = users.copy()
+    if role_filter != "All":
+        filtered_users = filtered_users[filtered_users['role'] == role_filter]
+    if status_filter != "All":
+        filtered_users = filtered_users[filtered_users['status'] == status_filter]
+    
+    # Editable table
+    edited_users = st.data_editor(
+        filtered_users,
+        disabled=["user_id"],
+        hide_index=True,
+        use_container_width=True
+    )
+    
+    if st.button("Save Changes"):
+        users.update(edited_users)
+        save_data(users, 'users')
+        st.success("Changes saved")
+
+with credit_tab:
+    st.subheader("Customer Credit Management")
+    customers = users[users['role'] == 'customer']
+    
+    col1, col2 = st.columns(2)
+    with col1:
+        st.dataframe(customers[['user_id', 'name', 'credit_limit', 'current_balance']], hide_index=True)
+    
+    with col2:
+        with st.form("credit_adjustment"):
+            customer_id = st.selectbox("Select customer", customers['user_id'])
+            new_limit = st.number_input("New credit limit", min_value=0)
+            balance_adjust = st.number_input("Balance adjustment")
             
-            with st.form("edit_user"):
-                name = st.text_input("Name", value=user['name'])
-                status = st.selectbox("Status", ["active", "inactive"], 
-                                   index=0 if user['status'] == "active" else 1)
-                
-                if user['role'] == 'customer':
-                    credit_limit = st.number_input("Credit Limit", 
-                                                 value=float(user['credit_limit']))
-                    current_balance = st.number_input("Current Balance", 
-                                                   value=float(user['current_balance']))
-                
-                new_password = st.text_input("New Password", type="password", 
-                                          placeholder="Leave blank to keep current")
-                
-                if st.form_submit_button("Update User"):
-                    users_df.loc[users_df['user_id'] == user_id, 'name'] = name
-                    users_df.loc[users_df['user_id'] == user_id, 'status'] = status
-                    
-                    if user['role'] == 'customer':
-                        users_df.loc[users_df['user_id'] == user_id, 'credit_limit'] = credit_limit
-                        users_df.loc[users_df['user_id'] == user_id, 'current_balance'] = current_balance
-                    
-                    if new_password:
-                        users_df.loc[users_df['user_id'] == user_id, 'password'] = new_password
-                    
-                    users_df.to_csv("data/users.csv", index=False)
-                    st.success("User updated successfully!")
+            if st.form_submit_button("Update Credit"):
+                users.loc[users['user_id'] == customer_id, 'credit_limit'] = new_limit
+                users.loc[users['user_id'] == customer_id, 'current_balance'] += balance_adjust
+                save_data(users, 'users')
+                st.success("Credit updated")
