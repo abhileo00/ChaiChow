@@ -1,91 +1,84 @@
 import streamlit as st
 import pandas as pd
 from datetime import datetime
+from utils.helpers import load_data, save_data
 
-def render():
-    st.title("Place Order")
-    
-    try:
-        menu_df = pd.read_csv("data/menu.csv")
-        users_df = pd.read_csv("data/users.csv")
-    except:
-        st.error("Failed to load data files")
-        return
-    
-    if menu_df.empty:
-        st.warning("No menu items available")
-        return
-    
-    with st.expander("View Menu"):
-        st.dataframe(menu_df[['name', 'price']])
-    
+st.set_page_config(page_title="Order Management", layout="wide")
+
+# Authentication check
+if 'user_role' not in st.session_state:
+    st.switch_page("app.py")
+
+# Load data
+menu = load_data('menu')
+users = load_data('users')
+orders = load_data('orders')
+
+st.title("Order Management")
+
+def place_order_form(user_role, customer_id=None):
     with st.form("order_form"):
-        items = menu_df['name'].tolist()
-        quantities = {item: 0 for item in items}
+        st.subheader("Create New Order")
         
-        if st.session_state.user_role == "staff":
-            customer_mobile = st.text_input("Customer Mobile (for credit orders)")
-        
-        cols = st.columns(4)
+        # Item selection
+        items = st.multiselect("Select menu items", menu['item_name'].tolist())
+        quantities = {}
+        cols = st.columns(len(items))
         for i, item in enumerate(items):
-            quantities[item] = cols[i % 4].number_input(
-                f"{item}", min_value=0, max_value=10, value=0
-            )
+            with cols[i]:
+                quantities[item] = st.number_input(f"Quantity for {item}", min_value=1, value=1)
         
-        payment_mode = st.selectbox(
-            "Payment Mode", 
-            ["Paid", "Credit"],
-            disabled=st.session_state.user_role == "staff" and not customer_mobile
-        )
+        # Payment options
+        payment_options = ["Paid"]
+        if user_role in ["admin", "staff"] or (user_role == "customer" and customer_id):
+            payment_options.append("Credit")
+        
+        payment_mode = st.radio("Payment Mode", payment_options)
         
         if st.form_submit_button("Place Order"):
-            selected_items = [item for item, qty in quantities.items() if qty > 0]
-            if not selected_items:
-                st.error("Please select at least one item")
-                return
+            # Calculate total
+            total = sum(menu.loc[menu['item_name'] == item, 'price'].values[0] * quantities[item] for item in items)
             
-            total = sum(
-                quantities[item] * menu_df[menu_df['name'] == item]['price'].values[0] 
-                for item in selected_items
-            )
-            
+            # Credit validation
             if payment_mode == "Credit":
-                if st.session_state.user_role == "customer":
-                    customer_id = st.session_state.user_id
-                elif st.session_state.user_role == "staff":
-                    customer = users_df[users_df['mobile'] == customer_mobile]
-                    if not customer.empty:
-                        customer_id = customer.iloc[0]['user_id']
-                    else:
-                        st.error("Customer not found")
-                        return
-                
-                customer_data = users_df[users_df['user_id'] == customer_id].iloc[0]
-                new_balance = float(customer_data['current_balance']) + total
-                if new_balance > float(customer_data['credit_limit']):
-                    st.warning(f"Credit limit exceeded! Balance: {new_balance}/{customer_data['credit_limit']}")
+                user = users[users['user_id'] == customer_id].iloc[0]
+                if user['current_balance'] + total > user['credit_limit']:
+                    st.warning(f"Credit limit exceeded! New balance: {user['current_balance'] + total}")
             
+            # Create order record
             new_order = {
-                "order_id": f"ORD_{datetime.now().strftime('%Y%m%d%H%M%S')}",
-                "customer_id": customer_id if payment_mode == "Credit" else None,
-                "staff_id": st.session_state.user_id if st.session_state.user_role == "staff" else None,
-                "items": ",".join(selected_items),
-                "quantities": ",".join(str(quantities[i]) for i in selected_items),
-                "total_amount": total,
-                "payment_mode": payment_mode,
-                "status": "Pending",
-                "created_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                'order_id': len(orders) + 1,
+                'customer_id': customer_id if customer_id else 'WALK-IN',
+                'staff_id': st.session_state.user_id if user_role in ["admin", "staff"] else None,
+                'items': str({item: quantities[item] for item in items}),
+                'total': total,
+                'payment_mode': payment_mode,
+                'status': 'Pending',
+                'timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             }
             
-            try:
-                orders_df = pd.read_csv("data/orders.csv")
-                orders_df = pd.concat([orders_df, pd.DataFrame([new_order])], ignore_index=True)
-                orders_df.to_csv("data/orders.csv", index=False)
-                
-                if payment_mode == "Credit":
-                    users_df.loc[users_df['user_id'] == customer_id, 'current_balance'] = new_balance
-                    users_df.to_csv("data/users.csv", index=False)
-                
-                st.success(f"Order placed! Total: {total:.2f}")
-            except Exception as e:
-                st.error(f"Failed to save order: {str(e)}")
+            # Update data
+            orders = pd.concat([orders, pd.DataFrame([new_order])], ignore_index=True)
+            if payment_mode == "Credit":
+                users.loc[users['user_id'] == customer_id, 'current_balance'] += total
+            
+            save_data(orders, 'orders')
+            save_data(users, 'users')
+            st.success("Order placed successfully!")
+
+# Customer view
+if st.session_state.user_role == "customer":
+    place_order_form("customer", st.session_state.user_id)
+
+# Staff/Admin view
+else:
+    st.subheader("Walk-in Orders")
+    customer_mobile = st.text_input("Customer Mobile (for credit orders)")
+    if customer_mobile and customer_mobile not in users[users['role'] == 'customer']['user_id'].values:
+        st.error("Customer not found")
+    else:
+        place_order_form(st.session_state.user_role, customer_mobile if customer_mobile else None)
+    
+    # Order management
+    st.subheader("Recent Orders")
+    st.dataframe(orders.sort_values('timestamp', ascending=False).head(20), hide_index=True)
