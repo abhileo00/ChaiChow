@@ -1,8 +1,17 @@
-import streamlit as st
-import pandas as pd
 import os
+import sys
+import subprocess
 import datetime
-from streamlit_option_menu import option_menu
+import streamlit as st
+
+# Install required packages if not available
+try:
+    import pandas as pd
+    from streamlit_option_menu import option_menu
+except ImportError:
+    subprocess.check_call([sys.executable, "-m", "pip", "install", "pandas==2.2.2", "streamlit-option-menu==0.3.6"])
+    import pandas as pd
+    from streamlit_option_menu import option_menu
 
 # Create data directory if not exists
 if not os.path.exists('data'):
@@ -16,12 +25,12 @@ def init_csv(file_path, columns):
 
 # Initialize all data files
 init_csv('data/users.csv', ['user_id', 'name', 'mobile', 'password', 'role', 'status', 'credit_limit', 'current_balance'])
-init_csv('data/menu.csv', ['item_id', 'name', 'description', 'price', 'category', 'image'])
+init_csv('data/menu.csv', ['item_id', 'name', 'description', 'price', 'category'])
 init_csv('data/inventory.csv', ['item_id', 'item_name', 'quantity', 'unit', 'min_stock'])
 init_csv('data/orders.csv', ['order_id', 'user_id', 'mobile', 'items', 'total', 'date', 'payment_mode', 'status'])
 init_csv('data/feedback.csv', ['feedback_id', 'user_id', 'name', 'rating', 'type', 'comment', 'date'])
 
-# Custom CSS for black and red theme with top navigation
+# Custom CSS for black and red theme
 st.markdown("""
 <style>
 :root {
@@ -34,15 +43,18 @@ st.markdown("""
 body {
     color: var(--text);
     background-color: var(--background);
+    font-family: 'Arial', sans-serif;
 }
 
 .stApp {
     background-color: var(--background);
 }
 
-.stTextInput>div>div>input, .stNumberInput>div>div>input, .stSelectbox>div>div>select, .stTextArea>div>div>textarea {
+.stTextInput>div>div>input, .stNumberInput>div>div>input, 
+.stSelectbox>div>div>select, .stTextArea>div>div>textarea {
     color: white;
     background-color: var(--secondary-background) !important;
+    border: 1px solid #444;
 }
 
 .stButton>button {
@@ -50,6 +62,12 @@ body {
     color: black !important;
     font-weight: bold;
     border: none;
+    border-radius: 4px;
+    padding: 8px 16px;
+}
+
+.stButton>button:hover {
+    opacity: 0.9;
 }
 
 .stSelectbox>div>div>div {
@@ -57,71 +75,36 @@ body {
     color: white;
 }
 
-.st-bb, .st-at, .st-ag, .st-af, .st-ae, .st-ad, .st-ac, .st-ab, .st-aa, .st-df {
-    border-color: #ff4b4b !important;
-}
-
-/* Top navigation menu */
-.stTopNav {
-    background-color: var(--secondary-background) !important;
-    padding: 10px 0;
-    margin-bottom: 20px;
+/* Top navigation styling */
+[data-testid="stHorizontalBlock"] {
+    background-color: #1a1a1a;
+    padding: 10px;
     border-bottom: 2px solid var(--primary);
-}
-
-.stTopNav .st-bx {
-    gap: 5px;
-}
-
-.stTopNav [data-baseweb="tab"] {
-    background-color: transparent !important;
-    color: var(--text) !important;
-    padding: 8px 15px;
+    margin-bottom: 20px;
     border-radius: 4px;
-    margin: 0 2px;
-    transition: all 0.3s;
 }
 
-.stTopNav [data-baseweb="tab"]:hover {
-    background-color: #333 !important;
-}
-
-.stTopNav [aria-selected="true"] {
-    background-color: var(--primary) !important;
-    color: black !important;
-}
-
-/* User info in sidebar */
-.user-info {
-    padding: 15px;
+/* Card styling */
+.card {
     background-color: var(--secondary-background);
     border-radius: 8px;
-    margin-bottom: 20px;
+    padding: 15px;
+    margin-bottom: 15px;
     border-left: 3px solid var(--primary);
 }
 
 /* Responsive adjustments */
 @media (max-width: 768px) {
-    .stTopNav [data-baseweb="tab"] {
-        padding: 6px 10px;
-        font-size: 12px;
+    .stSelectbox>div>div>div {
+        font-size: 14px;
     }
     
-    .user-info {
+    .card {
         padding: 10px;
-        font-size: 14px;
     }
 }
 </style>
 """, unsafe_allow_html=True)
-
-# Session state initialization
-if 'logged_in' not in st.session_state:
-    st.session_state.logged_in = False
-    st.session_state.user_role = None
-    st.session_state.user_id = None
-    st.session_state.name = None
-    st.session_state.current_page = 'Order'
 
 # Data loading functions
 def load_data(file_name):
@@ -132,6 +115,14 @@ def load_data(file_name):
 
 def save_data(df, file_name):
     df.to_csv(f'data/{file_name}.csv', index=False)
+
+# Session state initialization
+if 'logged_in' not in st.session_state:
+    st.session_state.logged_in = False
+    st.session_state.user_role = None
+    st.session_state.user_id = None
+    st.session_state.name = None
+    st.session_state.current_page = 'Order'
 
 # Page: Login
 def login_page():
@@ -146,17 +137,20 @@ def login_page():
             
             if submit:
                 users = load_data('users')
-                user = users[(users['user_id'] == user_id) & (users['password'] == password) & 
-                            (users['role'].isin(['Admin', 'Staff'])) & (users['status'] == 'Active')]
-                if not user.empty:
-                    st.session_state.logged_in = True
-                    st.session_state.user_role = user['role'].values[0]
-                    st.session_state.user_id = user_id
-                    st.session_state.name = user['name'].values[0]
-                    st.session_state.current_page = 'Order'
-                    st.rerun()
+                if not users.empty:
+                    user = users[(users['user_id'] == user_id) & (users['password'] == password) & 
+                                (users['role'].isin(['Admin', 'Staff'])) & (users['status'] == 'Active')]
+                    if not user.empty:
+                        st.session_state.logged_in = True
+                        st.session_state.user_role = user['role'].values[0]
+                        st.session_state.user_id = user_id
+                        st.session_state.name = user['name'].values[0]
+                        st.session_state.current_page = 'Order'
+                        st.rerun()
+                    else:
+                        st.error("Invalid credentials or account inactive")
                 else:
-                    st.error("Invalid credentials or account inactive")
+                    st.error("No users found")
     
     else:  # Customer
         with st.form("Customer Login"):
@@ -170,22 +164,23 @@ def login_page():
             
             if login_btn:
                 users = load_data('users')
-                user = users[(users['mobile'] == mobile) & (users['password'] == password) & 
-                            (users['role'] == 'Customer') & (users['status'] == 'Active')]
-                if not user.empty:
-                    st.session_state.logged_in = True
-                    st.session_state.user_role = 'Customer'
-                    st.session_state.user_id = user['user_id'].values[0]
-                    st.session_state.name = user['name'].values[0]
-                    st.session_state.current_page = 'Order'
-                    st.rerun()
+                if not users.empty:
+                    user = users[(users['mobile'] == mobile) & (users['password'] == password) & 
+                                (users['role'] == 'Customer') & (users['status'] == 'Active')]
+                    if not user.empty:
+                        st.session_state.logged_in = True
+                        st.session_state.user_role = 'Customer'
+                        st.session_state.user_id = user['user_id'].values[0]
+                        st.session_state.name = user['name'].values[0]
+                        st.session_state.current_page = 'Order'
+                        st.rerun()
+                    else:
+                        st.error("Invalid credentials or account inactive")
                 else:
-                    st.error("Invalid credentials or account inactive")
+                    st.error("No users found")
             elif register_btn:
                 users = load_data('users')
-                if mobile in users['mobile'].values:
-                    st.error("Mobile number already registered")
-                else:
+                if users.empty or mobile not in users['mobile'].values:
                     new_user = pd.DataFrame([{
                         'user_id': f"C{datetime.datetime.now().timestamp()}",
                         'name': 'New Customer',
@@ -196,8 +191,10 @@ def login_page():
                         'credit_limit': 1000,
                         'current_balance': 0
                     }])
-                    save_data(pd.concat([users, new_user], ignore_index=True), 'users')
+                    save_data(pd.concat([users, new_user], ignore_index=True) if not users.empty else new_user, 'users')
                     st.success("Registration successful! Please login")
+                else:
+                    st.error("Mobile number already registered")
 
 # Page: Order
 def order_page():
@@ -216,19 +213,13 @@ def order_page():
     for _, row in menu.iterrows():
         with cols[col_index]:
             with st.container():
-                st.image(row['image'] if pd.notna(row['image']) else "https://via.placeholder.com/150?text=Food+Image", 
-                         use_column_width=True)
+                st.markdown(f"<div class='card'>", unsafe_allow_html=True)
                 st.subheader(row['name'])
                 st.caption(row['description'])
                 st.write(f"₹{row['price']}")
                 quantity = st.number_input(f"Quantity", min_value=0, max_value=10, key=row['item_id'])
                 items[row['item_id']] = quantity
-                
-                # Add to cart button
-                if st.button(f"Add to Cart", key=f"add_{row['item_id']}"):
-                    if items[row['item_id']] == 0:
-                        items[row['item_id']] = 1
-                    st.success(f"Added {row['name']} to cart")
+                st.markdown("</div>", unsafe_allow_html=True)
         
         col_index = (col_index + 1) % 3
     
@@ -270,19 +261,19 @@ def order_page():
             else:
                 user = users[users['mobile'] == mobile]
             
-            if user.empty:
+            if not user.empty:
+                user = user.iloc[0]
+                new_balance = user['current_balance'] + total
+                
+                if new_balance > user['credit_limit']:
+                    st.warning("Credit limit exceeded. Order marked as due")
+                
+                # Update user balance
+                users.loc[users['user_id'] == user['user_id'], 'current_balance'] = new_balance
+                save_data(users, 'users')
+            else:
                 st.error("Customer not found")
                 return
-            
-            user = user.iloc[0]
-            new_balance = user['current_balance'] + total
-            
-            if new_balance > user['credit_limit']:
-                st.warning("Credit limit exceeded. Order marked as due")
-            
-            # Update user balance
-            users.loc[users['user_id'] == user['user_id'], 'current_balance'] = new_balance
-            save_data(users, 'users')
         
         # Save order
         order_data = {
@@ -293,7 +284,7 @@ def order_page():
             'total': total,
             'date': datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             'payment_mode': payment_mode,
-            'status': "Due" if payment_mode == "Credit" and new_balance > user['credit_limit'] else "Paid"
+            'status': "Due" if payment_mode == "Credit" and 'user' in locals() and new_balance > user['credit_limit'] else "Paid"
         }
         
         save_data(pd.concat([orders, pd.DataFrame([order_data])], ignore_index=True), 'orders')
@@ -317,9 +308,7 @@ def user_management_page():
             credit_limit = st.number_input("Credit Limit", min_value=0, value=1000) if role == "Customer" else 0
             
             if st.form_submit_button("Add User"):
-                if mobile in users['mobile'].values:
-                    st.error("Mobile number already registered")
-                else:
+                if users.empty or mobile not in users['mobile'].values:
                     new_user = pd.DataFrame([{
                         'user_id': f"{role[0]}{datetime.datetime.now().timestamp()}",
                         'name': name,
@@ -330,13 +319,18 @@ def user_management_page():
                         'credit_limit': credit_limit,
                         'current_balance': 0
                     }])
-                    
-                    save_data(pd.concat([users, new_user], ignore_index=True), 'users')
+                    save_data(pd.concat([users, new_user], ignore_index=True) if not users.empty else new_user, 'users')
                     st.success("User added successfully")
+                else:
+                    st.error("Mobile number already registered")
     
     with tabs[1]:
         st.subheader("User List")
         
+        if users.empty:
+            st.info("No users found")
+            return
+            
         # Filter options
         col1, col2 = st.columns(2)
         with col1:
@@ -386,7 +380,6 @@ def menu_management_page():
             description = st.text_area("Description")
             price = st.number_input("Price", min_value=0.0, format="%.2f", value=100.0)
             category = st.selectbox("Category", ["Beverage", "Main Course", "Appetizer", "Dessert"])
-            image = st.text_input("Image URL", value="https://via.placeholder.com/150?text=Food+Image")
             
             if st.form_submit_button("Add Item"):
                 new_item = pd.DataFrame([{
@@ -394,11 +387,9 @@ def menu_management_page():
                     'name': name,
                     'description': description,
                     'price': price,
-                    'category': category,
-                    'image': image
+                    'category': category
                 }])
-                
-                save_data(pd.concat([menu, new_item], ignore_index=True), 'menu')
+                save_data(pd.concat([menu, new_item], ignore_index=True) if not menu.empty else new_item, 'menu')
                 st.success("Menu item added")
     
     with tabs[1]:
@@ -411,7 +402,7 @@ def menu_management_page():
             for _, item in menu.iterrows():
                 with cols[col_idx]:
                     with st.container():
-                        st.image(item['image'], use_column_width=True)
+                        st.markdown(f"<div class='card'>", unsafe_allow_html=True)
                         st.subheader(item['name'])
                         st.caption(item['description'])
                         st.write(f"₹{item['price']}")
@@ -423,12 +414,11 @@ def menu_management_page():
                                 price = st.number_input("Price", value=item['price'])
                                 category = st.selectbox("Category", ["Beverage", "Main Course", "Appetizer", "Dessert"], 
                                                       index=["Beverage", "Main Course", "Appetizer", "Dessert"].index(item['category']))
-                                image = st.text_input("Image URL", value=item['image'])
                                 
                                 col1, col2 = st.columns(2)
                                 with col1:
                                     if st.form_submit_button("Update"):
-                                        menu.loc[menu['item_id'] == item['item_id'], ['name', 'description', 'price', 'category', 'image']] = [name, description, price, category, image]
+                                        menu.loc[menu['item_id'] == item['item_id'], ['name', 'description', 'price', 'category']] = [name, description, price, category]
                                         save_data(menu, 'menu')
                                         st.success("Item updated")
                                 with col2:
@@ -436,6 +426,7 @@ def menu_management_page():
                                         menu = menu[menu['item_id'] != item['item_id']]
                                         save_data(menu, 'menu')
                                         st.rerun()
+                        st.markdown("</div>", unsafe_allow_html=True)
                 col_idx = (col_idx + 1) % 3
 
 # Page: Inventory Management
@@ -460,53 +451,54 @@ def inventory_page():
                     'unit': unit,
                     'min_stock': min_stock
                 }])
-                
-                save_data(pd.concat([inventory, new_item], ignore_index=True), 'inventory')
+                save_data(pd.concat([inventory, new_item], ignore_index=True) if not inventory.empty else new_item, 'inventory')
                 st.success("Inventory item added")
     
     with tabs[1]:
         st.subheader("Current Inventory")
         
-        # Low stock alert
-        if not inventory.empty:
-            low_stock = inventory[inventory['quantity'] <= inventory['min_stock']]
-            if not low_stock.empty:
-                st.warning("⚠️ Low Stock Alert!")
-                for _, item in low_stock.iterrows():
-                    st.error(f"{item['item_name']}: {item['quantity']} {item['unit']} (Min: {item['min_stock']})")
-        
-        # Display inventory
         if inventory.empty:
             st.info("No inventory items available")
-        else:
-            cols = st.columns(3)
-            col_idx = 0
-            for _, item in inventory.iterrows():
-                with cols[col_idx]:
-                    with st.container():
-                        status = "🟢" if item['quantity'] > item['min_stock'] else "🔴"
-                        st.subheader(f"{status} {item['item_name']}")
-                        st.write(f"Quantity: {item['quantity']} {item['unit']}")
-                        st.write(f"Min Stock: {item['min_stock']}")
-                        
-                        with st.expander("Edit"):
-                            with st.form(key=f"inv_{item['item_id']}"):
-                                quantity = st.number_input("Quantity", min_value=0, value=item['quantity'])
-                                unit = st.text_input("Unit", value=item['unit'])
-                                min_stock = st.number_input("Min Stock", min_value=0, value=item['min_stock'])
-                                
-                                col1, col2 = st.columns(2)
-                                with col1:
-                                    if st.form_submit_button("Update"):
-                                        inventory.loc[inventory['item_id'] == item['item_id'], ['quantity', 'unit', 'min_stock']] = [quantity, unit, min_stock]
-                                        save_data(inventory, 'inventory')
-                                        st.success("Inventory updated")
-                                with col2:
-                                    if st.button("Delete", key=f"del_inv_{item['item_id']}"):
-                                        inventory = inventory[inventory['item_id'] != item['item_id']]
-                                        save_data(inventory, 'inventory')
-                                        st.rerun()
-                col_idx = (col_idx + 1) % 3
+            return
+            
+        # Low stock alert
+        low_stock = inventory[inventory['quantity'] <= inventory['min_stock']]
+        if not low_stock.empty:
+            st.warning("⚠️ Low Stock Alert!")
+            for _, item in low_stock.iterrows():
+                st.error(f"{item['item_name']}: {item['quantity']} {item['unit']} (Min: {item['min_stock']})")
+        
+        # Display inventory
+        cols = st.columns(3)
+        col_idx = 0
+        for _, item in inventory.iterrows():
+            with cols[col_idx]:
+                with st.container():
+                    status = "🟢" if item['quantity'] > item['min_stock'] else "🔴"
+                    st.markdown(f"<div class='card'>", unsafe_allow_html=True)
+                    st.subheader(f"{status} {item['item_name']}")
+                    st.write(f"Quantity: {item['quantity']} {item['unit']}")
+                    st.write(f"Min Stock: {item['min_stock']}")
+                    
+                    with st.expander("Edit"):
+                        with st.form(key=f"inv_{item['item_id']}"):
+                            quantity = st.number_input("Quantity", min_value=0, value=item['quantity'])
+                            unit = st.text_input("Unit", value=item['unit'])
+                            min_stock = st.number_input("Min Stock", min_value=0, value=item['min_stock'])
+                            
+                            col1, col2 = st.columns(2)
+                            with col1:
+                                if st.form_submit_button("Update"):
+                                    inventory.loc[inventory['item_id'] == item['item_id'], ['quantity', 'unit', 'min_stock']] = [quantity, unit, min_stock]
+                                    save_data(inventory, 'inventory')
+                                    st.success("Inventory updated")
+                            with col2:
+                                if st.button("Delete", key=f"del_inv_{item['item_id']}"):
+                                    inventory = inventory[inventory['item_id'] != item['item_id']]
+                                    save_data(inventory, 'inventory')
+                                    st.rerun()
+                    st.markdown("</div>", unsafe_allow_html=True)
+            col_idx = (col_idx + 1) % 3
 
 # Page: Reports
 def reports_page():
@@ -551,20 +543,21 @@ def reports_page():
     col3.metric("Average Order Value", f"₹{filtered_orders['total'].mean():.2f}")
     
     # Time series chart
-    st.subheader(f"Revenue Trend ({period})")
-    if period == "Daily":
-        time_group = filtered_orders['date'].dt.hour
-        x_label = "Hour"
-    elif period == "Weekly":
-        time_group = filtered_orders['date'].dt.day
-        x_label = "Day"
-    else:
-        time_group = filtered_orders['date'].dt.date
-        x_label = "Date"
-    
-    revenue_data = filtered_orders.groupby(time_group)['total'].sum().reset_index()
-    revenue_data.columns = [x_label, 'Revenue']
-    st.bar_chart(revenue_data.set_index(x_label))
+    if not filtered_orders.empty:
+        st.subheader(f"Revenue Trend ({period})")
+        if period == "Daily":
+            time_group = filtered_orders['date'].dt.hour
+            x_label = "Hour"
+        elif period == "Weekly":
+            time_group = filtered_orders['date'].dt.day
+            x_label = "Day"
+        else:
+            time_group = filtered_orders['date'].dt.date
+            x_label = "Date"
+        
+        revenue_data = filtered_orders.groupby(time_group)['total'].sum().reset_index()
+        revenue_data.columns = [x_label, 'Revenue']
+        st.bar_chart(revenue_data.set_index(x_label))
     
     # Top items
     st.subheader("Top Selling Items")
@@ -603,8 +596,7 @@ def feedback_page():
                 'comment': comment,
                 'date': datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             }])
-            
-            save_data(pd.concat([feedback, new_feedback], ignore_index=True), 'feedback')
+            save_data(pd.concat([feedback, new_feedback], ignore_index=True) if not feedback.empty else new_feedback, 'feedback')
             st.success("Thank you for your feedback!")
     
     # Display feedback (for Admin/Staff)
@@ -618,18 +610,19 @@ def feedback_page():
             for _, fb in feedback.iterrows():
                 with cols[col_idx]:
                     with st.container():
+                        st.markdown(f"<div class='card'>", unsafe_allow_html=True)
                         st.write(f"**{fb['name'] or 'Anonymous'}** ({fb['date'].split()[0]})")
                         st.write(f"Rating: {'⭐' * int(fb['rating'])}")
                         st.write(f"Type: {fb['type']}")
                         st.write(fb['comment'])
-                        st.divider()
+                        st.markdown("</div>", unsafe_allow_html=True)
                 col_idx = (col_idx + 1) % 2
 
 # Page: Customer Credit
 def credit_page():
     st.title("💰 Customer Credit Management")
     users = load_data('users')
-    customers = users[users['role'] == 'Customer']
+    customers = users[users['role'] == 'Customer'] if not users.empty else pd.DataFrame()
     
     if customers.empty:
         st.info("No customers found")
@@ -705,11 +698,10 @@ def main():
     
     # Sidebar user info
     with st.sidebar:
-        st.markdown(f"<div class='user-info'>"
-                    f"<h3>{st.session_state.name}</h3>"
-                    f"<p>Role: {st.session_state.user_role}</p>"
-                    f"<p>ID: {st.session_state.user_id}</p>"
-                    f"</div>", unsafe_allow_html=True)
+        st.markdown(f"<div class='card'>", unsafe_allow_html=True)
+        st.subheader(f"{st.session_state.name}")
+        st.write(f"Role: {st.session_state.user_role}")
+        st.write(f"ID: {st.session_state.user_id}")
         
         if st.button("Logout", use_container_width=True):
             st.session_state.logged_in = False
@@ -717,30 +709,11 @@ def main():
             st.session_state.user_id = None
             st.session_state.name = None
             st.rerun()
+        st.markdown("</div>", unsafe_allow_html=True)
     
     # Top navigation menu
     page_titles = list(pages.keys())
-    with st.container():
-        st.markdown("<div class='stTopNav'>", unsafe_allow_html=True)
-        selected_page = option_menu(
-            menu_title=None,
-            options=page_titles,
-            icons=["🧾", "⭐", "👤", "🍽", "📦", "📊", "💰"][:len(page_titles)],
-            default_index=page_titles.index(st.session_state.current_page),
-            orientation="horizontal",
-            styles={
-                "container": {"padding": "0!important", "background-color": "#1a1a1a"},
-                "icon": {"color": "white", "font-size": "16px"},
-                "nav-link": {
-                    "font-size": "16px",
-                    "text-align": "center",
-                    "margin": "0px",
-                    "--hover-color": "#333",
-                },
-                "nav-link-selected": {"background-color": "#ff4b4b", "color": "black"},
-            }
-        )
-        st.markdown("</div>", unsafe_allow_html=True)
+    selected_page = st.selectbox("Navigation", page_titles, index=page_titles.index(st.session_state.current_page), label_visibility="collapsed")
     
     # Update current page
     st.session_state.current_page = selected_page
