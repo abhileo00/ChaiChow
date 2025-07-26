@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 from utils.db import init_db, get_data_as_df
-from modules.auth import login_form, check_login
+from modules.auth import login_form
 from modules.expenses import manage_expenses
 from modules.sales import manage_sales
 from modules.inventory import manage_inventory
@@ -31,20 +31,20 @@ if st.session_state.logged_in:
     
     # Navigation
     pages = {
-        "Dashboard": "📊",
-        "Expenses": "💸",
-        "Sales": "💰",
-        "Inventory": "📦",
-        "Reports": "📝"
+        "📊 Dashboard": "dashboard",
+        "💸 Expenses": "expenses",
+        "💰 Sales": "sales",
+        "📦 Inventory": "inventory",
+        "📝 Reports": "reports"
     }
     
     # Sidebar navigation
     with st.sidebar:
         st.title("Navigation")
-        selected = st.radio("Go to", list(pages.keys()), format_func=lambda x: f"{pages[x]} {x}")
+        selected = st.radio("Go to", list(pages.keys()))
     
     # Page routing
-    if selected == "Dashboard":
+    if pages[selected] == "dashboard":
         st.header("Business Dashboard")
         col1, col2, col3 = st.columns(3)
         
@@ -76,16 +76,16 @@ if st.session_state.logged_in:
             st.write("**Recent Expenses**")
             st.dataframe(expenses_df.tail(3) if not expenses_df.empty else pd.DataFrame())
     
-    elif selected == "Expenses":
+    elif pages[selected] == "expenses":
         manage_expenses()
     
-    elif selected == "Sales":
+    elif pages[selected] == "sales":
         manage_sales()
     
-    elif selected == "Inventory":
+    elif pages[selected] == "inventory":
         manage_inventory()
     
-    elif selected == "Reports":
+    elif pages[selected] == "reports":
         generate_reports()
 else:
     st.title("Smart Food Business Manager")
@@ -97,3 +97,5 @@ else:
     - Username: `admin`
     - Password: `admin123`
     """)
+    st.image("https://cdn.pixabay.com/photo/2017/09/30/15/10/pizza-2802332_1280.jpg", 
+             use_column_width=True)
