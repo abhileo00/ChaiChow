@@ -1,5 +1,6 @@
 import streamlit as st
-from utils.db import init_db
+import pandas as pd
+from utils.db import init_db, get_data_as_df
 from modules.auth import login_form, check_login
 from modules.expenses import manage_expenses
 from modules.sales import manage_sales
@@ -28,49 +29,32 @@ if st.session_state.logged_in:
     st.title("🍕 Smart Food Business Manager")
     st.markdown("---")
     
-    # Dashboard
-    if "page" not in st.session_state:
-        st.session_state.page = "Dashboard"
+    # Navigation
+    pages = {
+        "Dashboard": "📊",
+        "Expenses": "💸",
+        "Sales": "💰",
+        "Inventory": "📦",
+        "Reports": "📝"
+    }
     
     # Sidebar navigation
     with st.sidebar:
         st.title("Navigation")
-        pages = {
-            "Dashboard": "📊 Dashboard",
-            "Expenses": "💸 Expenses",
-            "Sales": "💰 Sales",
-            "Inventory": "📦 Inventory",
-            "Reports": "📝 Reports"
-        }
-        
-        for page_name, page_icon in pages.items():
-            if st.button(f"{page_icon} {page_name}"):
-                st.session_state.page = page_name
+        selected = st.radio("Go to", list(pages.keys()), format_func=lambda x: f"{pages[x]} {x}")
     
     # Page routing
-    if st.session_state.page == "Dashboard":
+    if selected == "Dashboard":
         st.header("Business Dashboard")
         col1, col2, col3 = st.columns(3)
         
-        # Get business metrics
-        from utils.db import get_db_connection
-        conn = get_db_connection()
+        # Get metrics
+        sales_df = get_data_as_df("sales")
+        expenses_df = get_data_as_df("expenses")
         
-        # Total Sales
-        sales_df = pd.read_sql("SELECT * FROM sales", conn)
-        if not sales_df.empty:
-            total_sales = (sales_df['quantity'] * sales_df['rate']).sum()
-        else:
-            total_sales = 0
-        
-        # Total Expenses
-        expenses_df = pd.read_sql("SELECT * FROM expenses", conn)
+        total_sales = (sales_df['quantity'] * sales_df['rate']).sum() if not sales_df.empty else 0
         total_expenses = expenses_df['amount'].sum() if not expenses_df.empty else 0
-        
-        # Profit/Loss
         profit_loss = total_sales - total_expenses
-        
-        conn.close()
         
         with col1:
             st.metric("Total Sales", f"${total_sales:.2f}")
@@ -86,28 +70,22 @@ if st.session_state.logged_in:
         col1, col2 = st.columns(2)
         with col1:
             st.write("**Recent Sales**")
-            if not sales_df.empty:
-                st.dataframe(sales_df.tail(3))
-            else:
-                st.info("No recent sales")
+            st.dataframe(sales_df.tail(3) if not sales_df.empty else pd.DataFrame())
         
         with col2:
             st.write("**Recent Expenses**")
-            if not expenses_df.empty:
-                st.dataframe(expenses_df.tail(3))
-            else:
-                st.info("No recent expenses")
+            st.dataframe(expenses_df.tail(3) if not expenses_df.empty else pd.DataFrame())
     
-    elif st.session_state.page == "Expenses":
+    elif selected == "Expenses":
         manage_expenses()
     
-    elif st.session_state.page == "Sales":
+    elif selected == "Sales":
         manage_sales()
     
-    elif st.session_state.page == "Inventory":
+    elif selected == "Inventory":
         manage_inventory()
     
-    elif st.session_state.page == "Reports":
+    elif selected == "Reports":
         generate_reports()
 else:
     st.title("Smart Food Business Manager")
@@ -119,5 +97,3 @@ else:
     - Username: `admin`
     - Password: `admin123`
     """)
-    st.image("https://cdn.pixabay.com/photo/2017/09/30/15/10/pizza-2802332_1280.jpg", 
-             use_column_width=True)
