@@ -1,2 +1,0 @@
-user_id,name,password,role,email,status,credit_limit,current_balance
-admin1,Admin User,admin123,admin,admin@chaichow.com,active,0,0
