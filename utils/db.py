@@ -11,6 +11,7 @@ def init_db():
     conn = get_db_connection()
     cursor = conn.cursor()
     
+    # Create tables
     cursor.execute('''
     CREATE TABLE IF NOT EXISTS expenses (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
