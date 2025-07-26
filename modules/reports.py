@@ -1,19 +1,17 @@
 import streamlit as st
 import pandas as pd
-from utils.db import get_db_connection
+from utils.db import get_data_as_df
 from reportlab.lib.pagesizes import letter
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table
 from reportlab.lib.styles import getSampleStyleSheet
 from datetime import datetime
 
 def generate_reports():
-    st.header("Business Reports")
-    
-    conn = get_db_connection()
+    st.header("📝 Business Reports")
     
     # Sales Report
     st.subheader("Sales Report")
-    sales_df = pd.read_sql("SELECT * FROM sales", conn)
+    sales_df = get_data_as_df("sales")
     
     if not sales_df.empty:
         st.dataframe(sales_df)
@@ -28,7 +26,7 @@ def generate_reports():
     
     # Expenses Report
     st.subheader("Expenses Report")
-    expenses_df = pd.read_sql("SELECT * FROM expenses", conn)
+    expenses_df = get_data_as_df("expenses")
     
     if not expenses_df.empty:
         st.dataframe(expenses_df)
@@ -44,7 +42,7 @@ def generate_reports():
     # Combined PDF Report
     st.subheader("Combined Business Report")
     if st.button("Generate PDF Report"):
-        pdf_path = "business_report.pdf"
+        pdf_path = "reports/business_report.pdf"
         doc = SimpleDocTemplate(pdf_path, pagesize=letter)
         styles = getSampleStyleSheet()
         story = []
@@ -102,5 +100,3 @@ def generate_reports():
                 "business_report.pdf",
                 "application/pdf"
             )
-    
-    conn.close()
