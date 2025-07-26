@@ -1,11 +1,11 @@
 import streamlit as st
 import pandas as pd
-from utils.db import get_db_connection
+from utils.db import get_db_connection, execute_query, get_data_as_df
 from datetime import date
 import modules.inventory as inventory
 
 def manage_sales():
-    st.header("Sales Management")
+    st.header("💰 Sales Management")
     
     # Get available inventory items
     conn = get_db_connection()
@@ -21,7 +21,7 @@ def manage_sales():
     with st.form("sales_form"):
         item = st.selectbox("Item", items)
         quantity = st.number_input("Quantity", min_value=1, step=1)
-        rate = st.number_input("Rate per unit", min_value=0.0, step=0.1)
+        rate = st.number_input("Rate per unit ($)", min_value=0.0, step=0.1)
         sale_date = st.date_input("Date", date.today())
         
         if st.form_submit_button("Record Sale"):
@@ -30,22 +30,16 @@ def manage_sales():
             else:
                 # Update inventory
                 if inventory.update_inventory(item, -quantity):
-                    conn = get_db_connection()
-                    cursor = conn.cursor()
-                    cursor.execute(
+                    execute_query(
                         "INSERT INTO sales (item, quantity, rate, date) VALUES (?, ?, ?, ?)",
                         (item, quantity, rate, sale_date)
                     )
-                    conn.commit()
-                    conn.close()
                     st.success("Sale recorded successfully!")
                 else:
                     st.error("Insufficient inventory or item not found")
     
     st.subheader("Sales Records")
-    conn = get_db_connection()
-    sales_df = pd.read_sql("SELECT * FROM sales", conn)
-    conn.close()
+    sales_df = get_data_as_df("sales")
     
     if not sales_df.empty:
         st.dataframe(sales_df)
