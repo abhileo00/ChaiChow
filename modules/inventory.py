@@ -1,6 +1,6 @@
 import streamlit as st
 import pandas as pd
-from utils.db import get_db_connection
+from utils.db import get_db_connection, execute_query
 
 def update_inventory(item, quantity_change):
     conn = get_db_connection()
@@ -14,24 +14,22 @@ def update_inventory(item, quantity_change):
         new_quantity = result[0] + quantity_change
         if new_quantity < 0:
             return False
-        cursor.execute(
+        execute_query(
             "UPDATE inventory SET quantity = ? WHERE item = ?",
             (new_quantity, item)
         )
     else:
         if quantity_change < 0:
             return False
-        cursor.execute(
+        execute_query(
             "INSERT INTO inventory (item, quantity) VALUES (?, ?)",
             (item, quantity_change)
         )
     
-    conn.commit()
-    conn.close()
     return True
 
 def manage_inventory():
-    st.header("Inventory Management")
+    st.header("📦 Inventory Management")
     
     # Add new inventory
     with st.form("inventory_form"):
@@ -50,9 +48,7 @@ def manage_inventory():
     
     # View current inventory
     st.subheader("Current Inventory")
-    conn = get_db_connection()
-    inventory_df = pd.read_sql("SELECT * FROM inventory", conn)
-    conn.close()
+    inventory_df = get_data_as_df("inventory")
     
     if not inventory_df.empty:
         st.dataframe(inventory_df)
