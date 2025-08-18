@@ -69,7 +69,7 @@ def login_user(mobile, password):
     return None
 
 # ------------------------
-# App Pages
+# Pages
 # ------------------------
 def page_inventory(user):
     st.header("📦 Manage Inventory")
@@ -170,12 +170,12 @@ def page_reports(user):
 
     if not orders.empty:
         st.subheader("Sales Summary")
-        st.write("Total Sales:", orders["total"].sum())
-        st.write("Pending Credit:", orders["balance"].sum())
+        st.write("💵 Total Sales:", orders["total"].sum())
+        st.write("🧾 Pending Credit:", orders["balance"].sum())
 
     if not expenses.empty:
         st.subheader("Expense Summary")
-        st.write("Total Expenses:", expenses["amount"].sum())
+        st.write("💸 Total Expenses:", expenses["amount"].sum())
 
 # ------------------------
 # Main App
@@ -213,7 +213,7 @@ def main():
         with tab[3]:
             page_reports(user)
 
-        if st.sidebar.button("Logout"):
+        if st.sidebar.button("🚪 Logout"):
             st.session_state.pop("user")
             st.rerun()
 
