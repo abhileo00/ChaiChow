@@ -250,7 +250,7 @@ def login_page():
             if user and check_pw(password, user["password_hash"]):
                 st.session_state.user = user
                 st.success(f"Welcome {user['name']}!")
-                st.experimental_rerun()
+                st.rerun()
             else:
                 st.error("Invalid mobile or password")
 
@@ -265,7 +265,7 @@ def app_ui():
         st.markdown(f"**{user['name']}** · {user['role']}", unsafe_allow_html=True)
         if st.button("Logout"):
             st.session_state.user = None
-            st.experimental_rerun()
+            st.rerun()
 
     tabs = ["📊 Dashboard", "📦 Inventory", "💰 Expenses", "🛒 Sales", "💵 Payments", "🧾 Reports"]
     if user["role"] == "admin":
@@ -321,7 +321,7 @@ def app_ui():
                 else:
                     upsert_inventory(item_id, item_name, category, unit, stock_qty, rate, min_qty)
                     st.success("Item saved.")
-                    st.experimental_rerun()
+                    st.rerun()
         st.markdown("#### Inventory List")
         st.dataframe(inv, use_container_width=True)
         csv_download(inv, "Inventory")
@@ -352,7 +352,7 @@ def app_ui():
                     ok, msg = record_purchase(p_date, p_category, p_item_label.split("(")[0].strip(), pid, p_qty, p_rate, user_id=user["user_id"], remarks=p_remarks)
                     if ok:
                         st.success(f"Purchase recorded. Stock increased by {p_qty}")
-                        st.experimental_rerun()
+                        st.rerun()
                     else:
                         st.error(msg)
         with colB:
@@ -367,7 +367,7 @@ def app_ui():
             if s2:
                 record_expense(e_date, e_cat, e_item, e_amt, user_id=user["user_id"], remarks=e_rem)
                 st.success("Expense recorded.")
-                st.experimental_rerun()
+                st.rerun()
         st.markdown("#### Recent Purchases & Expenses")
         st.dataframe(load_csv(EXPENSES_FILE, SCHEMA["expenses"]).sort_values("date", ascending=False), use_container_width=True)
         csv_download(load_csv(EXPENSES_FILE, SCHEMA["expenses"]), "Expenses")
@@ -402,7 +402,7 @@ def app_ui():
                     ok, msg = record_order(s_date, s_customer, pid, item["item_name"], s_qty, rate, s_payment, user_id=user["user_id"], remarks=s_rem)
                     if ok:
                         st.success("Sale recorded & stock updated.")
-                        st.experimental_rerun()
+                        st.rerun()
                     else:
                         st.error(msg)
         st.markdown("#### Recent Sales")
@@ -427,7 +427,7 @@ def app_ui():
             else:
                 record_payment(p_date, p_cust, p_amt, p_mode, remarks=p_rem, user_id=user["user_id"])
                 st.success("Payment recorded.")
-                st.experimental_rerun()
+                st.rerun()
         st.markdown("#### Payment History")
         st.dataframe(load_csv(PAYMENTS_FILE, SCHEMA["payments"]).sort_values("date", ascending=False), use_container_width=True)
         csv_download(load_csv(PAYMENTS_FILE, SCHEMA["payments"]), "Payments")
@@ -500,7 +500,7 @@ def app_ui():
                 else:
                     create_or_update_user(u_id, u_name, u_role, u_mobile, u_password)
                     st.success("User saved.")
-                    st.experimental_rerun()
+                    st.rerun()
             st.markdown("#### Reset Password")
             with st.form("reset_pw"):
                 r_mobile = st.text_input("User mobile")
@@ -513,7 +513,7 @@ def app_ui():
                 else:
                     create_or_update_user(usr["user_id"], usr["name"], usr["role"], usr["mobile"], r_pw)
                     st.success("Password reset.")
-                    st.experimental_rerun()
+                    st.rerun()
 
 # -----------------------
 # Run
