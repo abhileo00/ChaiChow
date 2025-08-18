@@ -1,175 +1,124 @@
-# app.py
 import streamlit as st
 import pandas as pd
 import os
 from fpdf import FPDF
-from datetime import datetime
 
-st.set_page_config(page_title="DailyShop Dairy", layout="wide")
+# ===================== #
+# Utility Functions
+# ===================== #
 
-DATA_FILE = "DailyShop Dairy.csv"
-
-# ------------------------------
-# Load Data Function
-# ------------------------------
-def load_data():
-    """Load inventory and expenses from the CSV file."""
-    inventory = pd.DataFrame()
-    expenses = pd.DataFrame()
-
-    if os.path.exists(DATA_FILE):
+def load_users(file_path="users.csv"):
+    """Load users from CSV file"""
+    if os.path.exists(file_path):
         try:
-            df = pd.read_csv(DATA_FILE, encoding="utf-8")
-
-            # normalize column names
-            df.columns = df.columns.str.strip().str.lower()
-
-            # inventory
-            if all(col in df.columns for col in ["item", "quantity", "unit_price"]):
-                inventory = df[["item", "quantity", "unit_price"]].copy()
-                inventory["quantity"] = pd.to_numeric(inventory["quantity"], errors="coerce").fillna(0)
-                inventory["unit_price"] = pd.to_numeric(inventory["unit_price"], errors="coerce").fillna(0)
-
-            # expenses
-            if all(col in df.columns for col in ["date", "expense", "amount"]):
-                expenses = df[["date", "expense", "amount"]].copy()
-                expenses["amount"] = pd.to_numeric(expenses["amount"], errors="coerce").fillna(0)
-
+            users_df = pd.read_csv(file_path, dtype=str)
+            users = {}
+            for _, row in users_df.iterrows():
+                users[row["mobile"]] = {
+                    "password": row["password"],
+                    "role": row.get("role", "staff")  # default role = staff
+                }
+            return users
         except Exception as e:
-            st.warning(f"❌ Error reading CSV: {e}")
+            st.error(f"❌ Failed to load users.csv: {e}")
+            return {}
     else:
-        st.warning("⚠️ Data file not found, starting with empty records.")
+        st.warning("⚠️ users.csv not found. No users available.")
+        return {}
 
-    return inventory, expenses
+def load_shop_data(file_path="DailyShop Dairy.csv"):
+    """Load shop data from CSV"""
+    if os.path.exists(file_path):
+        try:
+            return pd.read_csv(file_path)
+        except Exception as e:
+            st.error(f"❌ Failed to load shop data: {e}")
+            return pd.DataFrame()
+    else:
+        st.warning("⚠️ DailyShop Dairy.csv not found. Starting empty.")
+        return pd.DataFrame()
 
-
-# ------------------------------
-# PDF Export
-# ------------------------------
-def make_simple_pdf_bytes(title, df):
+def make_simple_pdf_bytes(df, title="Report"):
+    """Generate a PDF report from dataframe"""
     pdf = FPDF()
     pdf.add_page()
     pdf.set_font("Arial", size=12)
 
-    # Title
     pdf.cell(200, 10, txt=title, ln=True, align="C")
 
-    # Table
-    if not df.empty:
-        col_width = pdf.w / (len(df.columns) + 1)
-        pdf.set_font("Arial", size=10)
+    # Table headers
+    col_width = pdf.w / (len(df.columns) + 1)
+    for col in df.columns:
+        pdf.cell(col_width, 10, col, border=1)
+    pdf.ln()
 
-        # Header
-        for col in df.columns:
-            pdf.cell(col_width, 10, str(col), border=1)
+    # Table rows
+    for _, row in df.iterrows():
+        for item in row:
+            text = str(item)
+            # Handle unicode by replacing unsupported chars
+            safe_text = text.encode("latin-1", "replace").decode("latin-1")
+            pdf.cell(col_width, 10, safe_text, border=1)
         pdf.ln()
-
-        # Rows
-        for _, row in df.iterrows():
-            for val in row:
-                safe_val = str(val).encode("latin-1", "replace").decode("latin-1")
-                pdf.cell(col_width, 10, safe_val, border=1)
-            pdf.ln()
 
     return pdf.output(dest="S").encode("latin-1")
 
+# ===================== #
+# App Logic
+# ===================== #
 
-# ------------------------------
+st.set_page_config(page_title="DailyShop Dairy", layout="wide")
+st.title("🛒 DailyShop Dairy")
+st.caption("Manage inventory, purchases, sales, expenses & cash")
+
+# Load users
+USERS = load_users()
+
 # Authentication
-# ------------------------------
-def login():
-    st.title("🛒 DailyShop Dairy")
-    st.caption("Manage inventory, purchases, sales, expenses & cash")
+if "logged_in" not in st.session_state:
+    st.session_state["logged_in"] = False
+if "user_role" not in st.session_state:
+    st.session_state["user_role"] = None
 
-    mobile = st.text_input("📱 Mobile Number", value="9999999999")
+if not st.session_state["logged_in"]:
+    st.subheader("🔐 Login")
+
+    mobile = st.text_input("📱 Mobile Number")
     password = st.text_input("🔑 Password", type="password")
 
     if st.button("Login"):
-        if mobile == "9999999999" and password == "admin123":
+        if mobile in USERS and USERS[mobile]["password"] == password:
             st.session_state["logged_in"] = True
-            st.experimental_rerun()
+            st.session_state["user_role"] = USERS[mobile]["role"]
+            st.success(f"✅ Welcome {st.session_state['user_role'].capitalize()}!")
+            st.rerun()
         else:
-            st.error("Invalid credentials")
+            st.error("❌ Invalid credentials")
 
+else:
+    role = st.session_state["user_role"]
+    st.sidebar.title(f"👤 {role.capitalize()} Panel")
+    st.sidebar.button("Logout", on_click=lambda: st.session_state.update({"logged_in": False, "user_role": None}))
 
-# ------------------------------
-# Dashboard
-# ------------------------------
-def dashboard(inventory, expenses):
+    # Load shop data
+    data = load_shop_data()
+
+    # Dashboard
     st.subheader("📊 Dashboard")
+    if data.empty:
+        st.info("No data available yet.")
+    else:
+        st.dataframe(data)
 
-    total_expenses = expenses["amount"].sum() if not expenses.empty else 0
-    stock_value = (inventory["quantity"] * inventory["unit_price"]).sum() if not inventory.empty else 0
+        # PDF Report button
+        if st.button("📄 Download Report as PDF"):
+            pdf_bytes = make_simple_pdf_bytes(data, title="DailyShop Dairy Report")
+            st.download_button("⬇️ Download PDF", pdf_bytes, "report.pdf", "application/pdf")
 
-    c1, c2 = st.columns(2)
-    c1.metric("₹ Total Expenses", f"{total_expenses:,.2f}")
-    c2.metric("₹ Stock Value (Est.)", f"{stock_value:,.2f}")
-
-    if not inventory.empty:
-        st.write("⚠️ Low stock alerts")
-        low_stock = inventory[inventory["quantity"] < 5]
-        st.table(low_stock if not low_stock.empty else pd.DataFrame({"Message": ["No low-stock items."]}))
-
-
-# ------------------------------
-# Inventory Page
-# ------------------------------
-def inventory_page(inventory):
-    st.subheader("📦 Inventory")
-    st.dataframe(inventory)
-
-    if st.download_button("⬇ Download Inventory CSV", inventory.to_csv(index=False).encode("utf-8"),
-                          "inventory.csv", "text/csv"):
-        st.success("Inventory downloaded!")
-
-    if st.download_button("⬇ Download Inventory PDF",
-                          make_simple_pdf_bytes("Inventory Report", inventory),
-                          "inventory.pdf", "application/pdf"):
-        st.success("Inventory PDF generated!")
-
-
-# ------------------------------
-# Expenses Page
-# ------------------------------
-def expenses_page(expenses):
-    st.subheader("💰 Expenses")
-    st.dataframe(expenses)
-
-    if st.download_button("⬇ Download Expenses CSV", expenses.to_csv(index=False).encode("utf-8"),
-                          "expenses.csv", "text/csv"):
-        st.success("Expenses downloaded!")
-
-    if st.download_button("⬇ Download Expenses PDF",
-                          make_simple_pdf_bytes("Expenses Report", expenses),
-                          "expenses.pdf", "application/pdf"):
-        st.success("Expenses PDF generated!")
-
-
-# ------------------------------
-# Main App
-# ------------------------------
-def main():
-    if "logged_in" not in st.session_state:
-        st.session_state["logged_in"] = False
-
-    if not st.session_state["logged_in"]:
-        login()
-        return
-
-    st.sidebar.title("🛒 DailyShop Dairy")
-    st.sidebar.caption("Master Admin · admin")
-
-    choice = st.sidebar.radio("Navigation", ["📊 Dashboard", "📦 Inventory", "💰 Expenses"])
-
-    inventory, expenses = load_data()
-
-    if choice == "📊 Dashboard":
-        dashboard(inventory, expenses)
-    elif choice == "📦 Inventory":
-        inventory_page(inventory)
-    elif choice == "💰 Expenses":
-        expenses_page(expenses)
-
-
-if __name__ == "__main__":
-    main()
+    # Role-based Access
+    if role == "master":
+        st.subheader("⚙️ Admin Features")
+        st.write("Add user management, delete entries, etc.")
+    else:
+        st.subheader("👥 Staff Access")
+        st.write("Limited access to sales & inventory.")
