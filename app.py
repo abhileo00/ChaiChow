@@ -1,124 +1,524 @@
-import streamlit as st
-import pandas as pd
+# app.py — DailyShop Dairy (single-file)
+# Requirements:
+#   pip install streamlit pandas fpdf
+# Run:
+#   streamlit run app.py
+
 import os
+import hashlib
+from datetime import datetime, date, timedelta
+import pandas as pd
+import streamlit as st
 from fpdf import FPDF
 
-# ===================== #
-# Utility Functions
-# ===================== #
+# -----------------------
+# Configuration
+# -----------------------
+APP_TITLE = "🛒 DailyShop Dairy"
+DATA_DIR = "data"
+USERS_FILE = os.path.join(DATA_DIR, "users.csv")
+INVENTORY_FILE = os.path.join(DATA_DIR, "inventory.csv")
+EXPENSES_FILE = os.path.join(DATA_DIR, "expenses.csv")
+ORDERS_FILE = os.path.join(DATA_DIR, "orders.csv")
+PAYMENTS_FILE = os.path.join(DATA_DIR, "payments.csv")
 
-def load_users(file_path="users.csv"):
-    """Load users from CSV file"""
-    if os.path.exists(file_path):
-        try:
-            users_df = pd.read_csv(file_path, dtype=str)
-            users = {}
-            for _, row in users_df.iterrows():
-                users[row["mobile"]] = {
-                    "password": row["password"],
-                    "role": row.get("role", "staff")  # default role = staff
-                }
-            return users
-        except Exception as e:
-            st.error(f"❌ Failed to load users.csv: {e}")
-            return {}
-    else:
-        st.warning("⚠️ users.csv not found. No users available.")
-        return {}
-
-def load_shop_data(file_path="DailyShop Dairy.csv"):
-    """Load shop data from CSV"""
-    if os.path.exists(file_path):
-        try:
-            return pd.read_csv(file_path)
-        except Exception as e:
-            st.error(f"❌ Failed to load shop data: {e}")
-            return pd.DataFrame()
-    else:
-        st.warning("⚠️ DailyShop Dairy.csv not found. Starting empty.")
-        return pd.DataFrame()
-
-def make_simple_pdf_bytes(df, title="Report"):
-    """Generate a PDF report from dataframe"""
-    pdf = FPDF()
-    pdf.add_page()
-    pdf.set_font("Arial", size=12)
-
-    pdf.cell(200, 10, txt=title, ln=True, align="C")
-
-    # Table headers
-    col_width = pdf.w / (len(df.columns) + 1)
-    for col in df.columns:
-        pdf.cell(col_width, 10, col, border=1)
-    pdf.ln()
-
-    # Table rows
-    for _, row in df.iterrows():
-        for item in row:
-            text = str(item)
-            # Handle unicode by replacing unsupported chars
-            safe_text = text.encode("latin-1", "replace").decode("latin-1")
-            pdf.cell(col_width, 10, safe_text, border=1)
-        pdf.ln()
-
-    return pdf.output(dest="S").encode("latin-1")
-
-# ===================== #
-# App Logic
-# ===================== #
+SCHEMA = {
+    "users": ["user_id", "name", "role", "mobile", "password_hash"],
+    "inventory": ["item_id", "item_name", "category", "unit", "stock_qty", "rate", "min_qty"],
+    "expenses": ["date", "type", "category", "item", "item_id", "qty", "rate", "amount", "user_id", "remarks"],
+    "orders": ["date", "customer_id", "item_id", "item_name", "qty", "rate", "total", "payment_mode", "balance", "user_id", "remarks"],
+    "payments": ["date", "customer_id", "amount", "mode", "remarks", "user_id"],
+}
 
 st.set_page_config(page_title="DailyShop Dairy", layout="wide")
-st.title("🛒 DailyShop Dairy")
-st.caption("Manage inventory, purchases, sales, expenses & cash")
 
-# Load users
-USERS = load_users()
+# -----------------------
+# Utility functions
+# -----------------------
+def safe_make_data_dir():
+    # if data exists but is file, remove it
+    if os.path.exists(DATA_DIR) and not os.path.isdir(DATA_DIR):
+        try:
+            os.remove(DATA_DIR)
+        except Exception:
+            pass
+    os.makedirs(DATA_DIR, exist_ok=True)
 
-# Authentication
-if "logged_in" not in st.session_state:
-    st.session_state["logged_in"] = False
-if "user_role" not in st.session_state:
-    st.session_state["user_role"] = None
+def new_df(cols): return pd.DataFrame(columns=cols)
 
-if not st.session_state["logged_in"]:
-    st.subheader("🔐 Login")
+def load_csv(path, cols):
+    if os.path.exists(path):
+        try:
+            df = pd.read_csv(path, dtype=str)
+        except Exception:
+            df = pd.read_csv(path, encoding="latin1", dtype=str)
+        # ensure columns exist
+        for c in cols:
+            if c not in df.columns:
+                df[c] = None
+        return df[cols]
+    return new_df(cols)
 
-    mobile = st.text_input("📱 Mobile Number")
-    password = st.text_input("🔑 Password", type="password")
+def save_csv(df, path):
+    os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+    df.to_csv(path, index=False, encoding="utf-8")
 
-    if st.button("Login"):
-        if mobile in USERS and USERS[mobile]["password"] == password:
-            st.session_state["logged_in"] = True
-            st.session_state["user_role"] = USERS[mobile]["role"]
-            st.success(f"✅ Welcome {st.session_state['user_role'].capitalize()}!")
-            st.rerun()
-        else:
-            st.error("❌ Invalid credentials")
+def hash_pw(pw: str) -> str:
+    return hashlib.sha256(str(pw).encode("utf-8")).hexdigest()
 
-else:
-    role = st.session_state["user_role"]
-    st.sidebar.title(f"👤 {role.capitalize()} Panel")
-    st.sidebar.button("Logout", on_click=lambda: st.session_state.update({"logged_in": False, "user_role": None}))
+def check_pw(raw: str, hashed: str) -> bool:
+    return hash_pw(raw) == hashed
 
-    # Load shop data
-    data = load_shop_data()
+# -----------------------
+# Bootstrap files & default admin
+# -----------------------
+def bootstrap_files():
+    safe_make_data_dir()
+    if not os.path.exists(USERS_FILE):
+        admin = pd.DataFrame([{
+            "user_id": "admin",
+            "name": "Master Admin",
+            "role": "admin",
+            "mobile": "9999999999",
+            "password_hash": hash_pw("admin123")
+        }], columns=SCHEMA["users"])
+        save_csv(admin, USERS_FILE)
+    for f, cols in [(INVENTORY_FILE, SCHEMA["inventory"]),
+                    (EXPENSES_FILE, SCHEMA["expenses"]),
+                    (ORDERS_FILE, SCHEMA["orders"]),
+                    (PAYMENTS_FILE, SCHEMA["payments"])]:
+        if not os.path.exists(f):
+            save_csv(new_df(cols), f)
+
+bootstrap_files()
+
+# -----------------------
+# Business functions
+# -----------------------
+def get_user_by_mobile(mobile):
+    users = load_csv(USERS_FILE, SCHEMA["users"])
+    row = users[users["mobile"].astype(str) == str(mobile)]
+    return row.iloc[0].to_dict() if not row.empty else None
+
+def create_or_update_user(user_id, name, role, mobile, password):
+    users = load_csv(USERS_FILE, SCHEMA["users"])
+    exists = users[users["mobile"].astype(str) == str(mobile)]
+    pwdhash = hash_pw(password)
+    if exists.empty:
+        users.loc[len(users)] = [user_id, name, role, mobile, pwdhash]
+    else:
+        idx = exists.index[0]
+        users.loc[idx, ["user_id", "name", "role", "password_hash"]] = [user_id, name, role, pwdhash]
+    save_csv(users, USERS_FILE)
+
+def list_inventory():
+    inv = load_csv(INVENTORY_FILE, SCHEMA["inventory"])
+    inv["stock_qty"] = pd.to_numeric(inv["stock_qty"], errors="coerce").fillna(0)
+    inv["rate"] = pd.to_numeric(inv["rate"], errors="coerce").fillna(0.0)
+    inv["min_qty"] = pd.to_numeric(inv["min_qty"], errors="coerce").fillna(0)
+    return inv
+
+def upsert_inventory(item_id, item_name, category, unit, stock_qty, rate, min_qty):
+    inv = list_inventory()
+    exists = inv[inv["item_id"].astype(str) == str(item_id)]
+    if exists.empty:
+        inv.loc[len(inv)] = [item_id, item_name, category, unit, float(stock_qty), float(rate), float(min_qty)]
+    else:
+        idx = exists.index[0]
+        inv.loc[idx, ["item_name","category","unit","stock_qty","rate","min_qty"]] = [item_name, category, unit, float(stock_qty), float(rate), float(min_qty)]
+    save_csv(inv, INVENTORY_FILE)
+
+def delete_inventory(item_id):
+    inv = list_inventory()
+    inv = inv[inv["item_id"].astype(str) != str(item_id)]
+    save_csv(inv, INVENTORY_FILE)
+
+def adjust_stock(item_id, delta):
+    inv = list_inventory()
+    row = inv[inv["item_id"].astype(str) == str(item_id)]
+    if row.empty:
+        return False, "Item not found"
+    idx = row.index[0]
+    current = float(inv.loc[idx,"stock_qty"] or 0)
+    new = current + float(delta)
+    if new < 0:
+        return False, "Insufficient stock"
+    inv.loc[idx, "stock_qty"] = new
+    save_csv(inv, INVENTORY_FILE)
+    return True, new
+
+def record_expense(dt, category, item, amount, user_id="", remarks=""):
+    df = load_csv(EXPENSES_FILE, SCHEMA["expenses"])
+    df.loc[len(df)] = [dt.isoformat() if isinstance(dt, (date, datetime)) else str(dt), "Expense", category, item, "", 0.0, 0.0, float(amount or 0.0), user_id, remarks]
+    save_csv(df, EXPENSES_FILE)
+
+def record_purchase(dt, category, item_name, item_id, qty, rate, user_id="", remarks=""):
+    amount = round(float(qty) * float(rate), 2)
+    df = load_csv(EXPENSES_FILE, SCHEMA["expenses"])
+    df.loc[len(df)] = [dt.isoformat() if isinstance(dt, (date, datetime)) else str(dt), "Purchase", category, item_name, item_id, qty, rate, amount, user_id, remarks]
+    save_csv(df, EXPENSES_FILE)
+    ok, val = adjust_stock(item_id, qty)
+    return ok, val
+
+def record_order(dt, customer_id, item_id, item_name, qty, rate, payment_mode, user_id="", remarks=""):
+    total = round(float(qty) * float(rate), 2)
+    balance = total if payment_mode.lower() == "credit" else 0.0
+    df = load_csv(ORDERS_FILE, SCHEMA["orders"])
+    df.loc[len(df)] = [dt.isoformat() if isinstance(dt, (date, datetime)) else str(dt), customer_id, item_id, item_name, qty, rate, total, payment_mode, balance, user_id, remarks]
+    save_csv(df, ORDERS_FILE)
+    ok, new = adjust_stock(item_id, -qty)
+    return ok, new
+
+def record_payment(dt, customer_id, amount, mode, remarks="", user_id=""):
+    df = load_csv(PAYMENTS_FILE, SCHEMA["payments"])
+    df.loc[len(df)] = [dt.isoformat() if isinstance(dt, (date, datetime)) else str(dt), customer_id, float(amount), mode, remarks, user_id]
+    save_csv(df, PAYMENTS_FILE)
+
+def compute_customer_balances():
+    orders = load_csv(ORDERS_FILE, SCHEMA["orders"])
+    payments = load_csv(PAYMENTS_FILE, SCHEMA["payments"])
+    if orders.empty and payments.empty:
+        return new_df(["customer_id","credit_sales_total","payments_total","pending_balance"])
+    credits = orders[orders["payment_mode"].str.lower() == "credit"].copy()
+    credits["total"] = pd.to_numeric(credits["total"], errors="coerce").fillna(0.0)
+    credit_sum = credits.groupby("customer_id")["total"].sum().rename("credit_sales_total")
+    payments["amount"] = pd.to_numeric(payments["amount"], errors="coerce").fillna(0.0)
+    pay_sum = payments.groupby("customer_id")["amount"].sum().rename("payments_total")
+    df = pd.concat([credit_sum, pay_sum], axis=1).fillna(0.0)
+    df["pending_balance"] = df["credit_sales_total"] - df["payments_total"]
+    out = df.reset_index().rename(columns={"index":"customer_id"})
+    return out.sort_values("pending_balance", ascending=False)
+
+# -----------------------
+# Exports (CSV/PDF)
+# -----------------------
+def csv_download(df, label):
+    if df.empty:
+        st.warning("No data to export.")
+        return
+    st.download_button(f"⬇ Download {label} (CSV)", data=df.to_csv(index=False).encode("utf-8"), file_name=f"{label.replace(' ','_')}.csv", mime="text/csv")
+
+def make_pdf_bytes(title, df):
+    pdf = FPDF()
+    pdf.add_page()
+    pdf.set_font("Arial", size=10)
+    pdf.cell(0, 8, txt=title, ln=True)
+    pdf.ln(2)
+    if df.empty:
+        pdf.cell(0,6,"No data",ln=True)
+        return pdf.output(dest="S").encode("latin1","ignore")
+    cols = list(df.columns)[:8]
+    colw = pdf.w / max(len(cols),1) - 2
+    for c in cols:
+        pdf.cell(colw, 7, str(c)[:20], border=1)
+    pdf.ln()
+    for _, row in df.iterrows():
+        for c in cols:
+            text = str(row.get(c,""))
+            safe = text.encode("latin1", "replace").decode("latin1")
+            pdf.cell(colw, 6, safe[:20], border=1)
+        pdf.ln()
+    return pdf.output(dest="S").encode("latin1","ignore")
+
+# -----------------------
+# UI helpers
+# -----------------------
+def kpi_card(label, value):
+    st.markdown(f"""
+    <div style="background:#fff;padding:12px;border-radius:10px;box-shadow:0 6px 18px rgba(0,0,0,0.06);">
+      <div style="font-weight:700;font-size:20px">{value}</div>
+      <div style="color:#64748b">{label}</div>
+    </div>
+    """, unsafe_allow_html=True)
+
+# -----------------------
+# UI / Pages
+# -----------------------
+# Session
+if "user" not in st.session_state: st.session_state.user = None
+
+# Login page
+def login_page():
+    st.markdown(f"<h2 style='text-align:center;color:#2563EB'>{APP_TITLE}</h2>", unsafe_allow_html=True)
+    st.write("Login with mobile and password (first-time use: default Master Admin).")
+    with st.form("login_form"):
+        mobile = st.text_input("📱 Mobile", value="")
+        password = st.text_input("🔒 Password", type="password")
+        submitted = st.form_submit_button("Login")
+        if submitted:
+            user = get_user_by_mobile(mobile)
+            if user and check_pw(password, user["password_hash"]):
+                st.session_state.user = user
+                st.success(f"Welcome {user['name']}!")
+                st.experimental_rerun()
+            else:
+                st.error("Invalid mobile or password")
+
+# Main app
+def app_ui():
+    user = st.session_state.user
+    # Header & top tabs
+    colL, colR = st.columns([0.75, 0.25])
+    with colL:
+        st.markdown(f"<h3 style='margin:0;color:#0f172a'>{APP_TITLE}</h3>", unsafe_allow_html=True)
+    with colR:
+        st.markdown(f"**{user['name']}** · {user['role']}", unsafe_allow_html=True)
+        if st.button("Logout"):
+            st.session_state.user = None
+            st.experimental_rerun()
+
+    tabs = ["📊 Dashboard", "📦 Inventory", "💰 Expenses", "🛒 Sales", "💵 Payments", "🧾 Reports"]
+    if user["role"] == "admin":
+        tabs.append("👥 Users")
+    tab_objs = st.tabs(tabs)
 
     # Dashboard
-    st.subheader("📊 Dashboard")
-    if data.empty:
-        st.info("No data available yet.")
-    else:
-        st.dataframe(data)
+    with tab_objs[0]:
+        st.markdown("### 📊 Dashboard")
+        inv = list_inventory()
+        exp = load_csv(EXPENSES_FILE, SCHEMA["expenses"])
+        orders = load_csv(ORDERS_FILE, SCHEMA["orders"])
+        pays = load_csv(PAYMENTS_FILE, SCHEMA["payments"])
 
-        # PDF Report button
-        if st.button("📄 Download Report as PDF"):
-            pdf_bytes = make_simple_pdf_bytes(data, title="DailyShop Dairy Report")
-            st.download_button("⬇️ Download PDF", pdf_bytes, "report.pdf", "application/pdf")
+        total_exp = float(exp["amount"].astype(float).sum()) if not exp.empty else 0.0
+        total_sales = float(orders["total"].astype(float).sum()) if not orders.empty else 0.0
+        stock_value = float((inv["stock_qty"].astype(float) * inv["rate"].astype(float)).sum()) if not inv.empty else 0.0
+        balances = compute_customer_balances()
+        pending_total = float(balances["pending_balance"].sum()) if not balances.empty else 0.0
 
-    # Role-based Access
-    if role == "master":
-        st.subheader("⚙️ Admin Features")
-        st.write("Add user management, delete entries, etc.")
-    else:
-        st.subheader("👥 Staff Access")
-        st.write("Limited access to sales & inventory.")
+        c1, c2, c3, c4 = st.columns(4)
+        with c1: kpi_card("Total Expenses", f"₹ {total_exp:,.2f}")
+        with c2: kpi_card("Total Sales", f"₹ {total_sales:,.2f}")
+        with c3: kpi_card("Stock Value (Est.)", f"₹ {stock_value:,.2f}")
+        with c4: kpi_card("Pending Customer Balances", f"₹ {pending_total:,.2f}")
+
+        st.markdown("#### Low stock alerts")
+        low = inv[inv["stock_qty"].astype(float) < inv["min_qty"].astype(float)]
+        if low.empty:
+            st.info("No low-stock items.")
+        else:
+            st.dataframe(low[["item_id","item_name","stock_qty","min_qty","rate"]])
+
+    # Inventory
+    with tab_objs[1]:
+        st.header("Inventory Master")
+        inv = list_inventory()
+        with st.expander("➕ Add / Update Item", expanded=True):
+            col1,col2,col3 = st.columns(3)
+            with col1:
+                item_id = st.text_input("Item ID *")
+                item_name = st.text_input("Item Name *")
+            with col2:
+                category = st.text_input("Category")
+                unit = st.text_input("Unit (kg/pack/pcs)")
+            with col3:
+                stock_qty = st.number_input("Stock Qty", value=0.0, step=0.1)
+                rate = st.number_input("Rate (₹)", min_value=0.0, step=0.1, value=0.0)
+                min_qty = st.number_input("Min Qty (alert)", min_value=0.0, step=0.1, value=0.0)
+            if st.button("Save Item"):
+                if not item_id or not item_name:
+                    st.error("Item ID and Item Name required.")
+                else:
+                    upsert_inventory(item_id, item_name, category, unit, stock_qty, rate, min_qty)
+                    st.success("Item saved.")
+                    st.experimental_rerun()
+        st.markdown("#### Inventory List")
+        st.dataframe(inv, use_container_width=True)
+        csv_download(inv, "Inventory")
+        if st.button("Export Inventory PDF"):
+            st.download_button("Download Inventory PDF", make_pdf_bytes("Inventory", inv), "inventory.pdf", "application/pdf")
+
+    # Expenses (Purchases + Non-stock)
+    with tab_objs[2]:
+        st.header("Purchases & Expenses")
+        inv = list_inventory()
+        labels = [f"{r['item_name']} ({r['item_id']})" for _, r in inv.iterrows()] if not inv.empty else []
+        colA, colB = st.columns(2)
+        with colA:
+            st.subheader("Purchase (Stock-In)")
+            with st.form("purchase_form", clear_on_submit=True):
+                p_date = st.date_input("Date", datetime.now().date())
+                p_item_label = st.selectbox("Item", options=["-- Select --"] + labels)
+                p_qty = st.number_input("Quantity", min_value=0.0, step=0.1)
+                p_rate = st.number_input("Rate (₹)", min_value=0.0, step=0.1)
+                p_category = st.text_input("Category", value="Purchase")
+                p_remarks = st.text_input("Remarks", "")
+                s1 = st.form_submit_button("Add Purchase")
+            if s1:
+                if p_item_label == "-- Select --":
+                    st.error("Select an item.")
+                else:
+                    pid = p_item_label.split("(")[-1].replace(")","").strip()
+                    ok, msg = record_purchase(p_date, p_category, p_item_label.split("(")[0].strip(), pid, p_qty, p_rate, user_id=user["user_id"], remarks=p_remarks)
+                    if ok:
+                        st.success(f"Purchase recorded. Stock increased by {p_qty}")
+                        st.experimental_rerun()
+                    else:
+                        st.error(msg)
+        with colB:
+            st.subheader("Expense (Non-stock)")
+            with st.form("expense_form", clear_on_submit=True):
+                e_date = st.date_input("Date", datetime.now().date())
+                e_cat = st.text_input("Category")
+                e_item = st.text_input("Expense Item")
+                e_amt = st.number_input("Amount (₹)", min_value=0.0, step=0.1)
+                e_rem = st.text_input("Remarks")
+                s2 = st.form_submit_button("Record Expense")
+            if s2:
+                record_expense(e_date, e_cat, e_item, e_amt, user_id=user["user_id"], remarks=e_rem)
+                st.success("Expense recorded.")
+                st.experimental_rerun()
+        st.markdown("#### Recent Purchases & Expenses")
+        st.dataframe(load_csv(EXPENSES_FILE, SCHEMA["expenses"]).sort_values("date", ascending=False), use_container_width=True)
+        csv_download(load_csv(EXPENSES_FILE, SCHEMA["expenses"]), "Expenses")
+
+    # Sales
+    with tab_objs[3]:
+        st.header("Sales / Orders")
+        inv = list_inventory()
+        if inv.empty:
+            st.info("No inventory items.")
+        else:
+            item_options = {f"{r['item_name']} ({r['item_id']})": r["item_id"] for _, r in inv.iterrows()}
+            with st.form("sales_form", clear_on_submit=True):
+                s_date = st.date_input("Date", datetime.now().date())
+                s_customer = st.text_input("Customer mobile")
+                s_item_label = st.selectbox("Item", options=["-- Select --"] + list(item_options.keys()))
+                s_qty = st.number_input("Qty", min_value=0.0, step=0.1, value=1.0)
+                use_item_rate = st.checkbox("Use item rate", value=True)
+                s_rate = st.number_input("Rate (₹)", min_value=0.0, step=0.1, value=0.0, disabled=use_item_rate)
+                s_payment = st.radio("Payment mode", ["Cash","Credit"], horizontal=True)
+                s_rem = st.text_input("Remarks")
+                s_sub = st.form_submit_button("Record Sale")
+            if s_sub:
+                if s_item_label == "-- Select --":
+                    st.error("Select item")
+                elif not s_customer:
+                    st.error("Customer mobile is required")
+                else:
+                    pid = item_options[s_item_label]
+                    item = inv[inv["item_id"].astype(str) == str(pid)].iloc[0]
+                    rate = float(item["rate"]) if use_item_rate else float(s_rate)
+                    ok, msg = record_order(s_date, s_customer, pid, item["item_name"], s_qty, rate, s_payment, user_id=user["user_id"], remarks=s_rem)
+                    if ok:
+                        st.success("Sale recorded & stock updated.")
+                        st.experimental_rerun()
+                    else:
+                        st.error(msg)
+        st.markdown("#### Recent Sales")
+        st.dataframe(load_csv(ORDERS_FILE, SCHEMA["orders"]).sort_values("date", ascending=False), use_container_width=True)
+        csv_download(load_csv(ORDERS_FILE, SCHEMA["orders"]), "Sales_Orders")
+
+    # Payments
+    with tab_objs[4]:
+        st.header("Customer Payments")
+        balances = compute_customer_balances()
+        st.dataframe(balances if not balances.empty else new_df(["customer_id","credit_sales_total","payments_total","pending_balance"]))
+        with st.form("payment_form", clear_on_submit=True):
+            p_date = st.date_input("Date", datetime.now().date())
+            p_cust = st.text_input("Customer mobile")
+            p_amt = st.number_input("Amount", min_value=0.0, step=0.1)
+            p_mode = st.selectbox("Mode", ["Cash","UPI","Card","Other"])
+            p_rem = st.text_input("Remarks")
+            p_sub = st.form_submit_button("Record Payment")
+        if p_sub:
+            if not p_cust or p_amt <= 0:
+                st.error("Customer and valid amount required.")
+            else:
+                record_payment(p_date, p_cust, p_amt, p_mode, remarks=p_rem, user_id=user["user_id"])
+                st.success("Payment recorded.")
+                st.experimental_rerun()
+        st.markdown("#### Payment History")
+        st.dataframe(load_csv(PAYMENTS_FILE, SCHEMA["payments"]).sort_values("date", ascending=False), use_container_width=True)
+        csv_download(load_csv(PAYMENTS_FILE, SCHEMA["payments"]), "Payments")
+
+    # Reports
+    with tab_objs[5]:
+        st.header("Reports & Exports")
+        today = datetime.now().date()
+        default_start = today.replace(day=1)
+        c1,c2,c3 = st.columns([1.2,1.2,1.6])
+        with c1: start_date = st.date_input("Start date", default_start)
+        with c2: end_date = st.date_input("End date", today)
+        with c3: filter_cust = st.text_input("Filter by Customer (mobile)")
+        exp = load_csv(EXPENSES_FILE, SCHEMA["expenses"])
+        ords = load_csv(ORDERS_FILE, SCHEMA["orders"])
+        pays = load_csv(PAYMENTS_FILE, SCHEMA["payments"])
+        def drange(df, col="date"):
+            if df.empty: return df
+            df2 = df.copy()
+            df2[col] = pd.to_datetime(df2[col], errors='coerce').dt.date
+            return df2[(df2[col] >= start_date) & (df2[col] <= end_date)]
+        exp_f = drange(exp,"date")
+        ord_f = drange(ords,"date")
+        pay_f = drange(pays,"date")
+        if filter_cust:
+            ord_f = ord_f[ord_f["customer_id"].astype(str)==str(filter_cust)]
+            pay_f = pay_f[pay_f["customer_id"].astype(str)==str(filter_cust)]
+        cash_sales = ord_f[ord_f["payment_mode"].str.lower()=="cash"]["total"].astype(float).sum() if not ord_f.empty else 0.0
+        total_sales = ord_f["total"].astype(float).sum() if not ord_f.empty else 0.0
+        total_exp = exp_f["amount"].astype(float).sum() if not exp_f.empty else 0.0
+        net_cash = cash_sales - total_exp
+        kk1,kk2,kk3,kk4 = st.columns(4)
+        with kk1: kpi_card("Expenses (range)", f"₹ {total_exp:,.2f}")
+        with kk2: kpi_card("Sales (range)", f"₹ {total_sales:,.2f}")
+        with kk3: kpi_card("Cash Sales (range)", f"₹ {cash_sales:,.2f}")
+        with kk4: kpi_card("Net Cash (Cash Sales - Expenses)", f"₹ {net_cash:,.2f}")
+        st.markdown("#### Expenses (filtered)"); st.dataframe(exp_f)
+        csv_download(exp_f, "Expenses_Filtered")
+        st.markdown("#### Sales (filtered)"); st.dataframe(ord_f)
+        csv_download(ord_f, "Sales_Filtered")
+        st.markdown("#### Payments (filtered)"); st.dataframe(pay_f)
+        csv_download(pay_f, "Payments_Filtered")
+        st.markdown("#### Customer Balances"); st.dataframe(compute_customer_balances())
+        csv_download(compute_customer_balances(), "Customer_Balances")
+        # PDF export buttons
+        if st.button("Export Summary PDF"):
+            summary = pd.DataFrame({
+                "Metric":["Expenses (range)","Sales (range)","Cash Sales","Net Cash"],
+                "Value":[f"₹ {total_exp:,.2f}", f"₹ {total_sales:,.2f}", f"₹ {cash_sales:,.2f}", f"₹ {net_cash:,.2f}"]
+            })
+            pdfb = make_pdf_bytes("DailyShop Summary", summary)
+            st.download_button("Download PDF", data=pdfb, file_name="summary.pdf", mime="application/pdf")
+
+    # Users (Admin only)
+    if user['role']=="admin":
+        with tab_objs[-1]:
+            st.header("User Management (Admin)")
+            users = load_csv(USERS_FILE, SCHEMA["users"])
+            st.dataframe(users[["user_id","name","role","mobile"]], use_container_width=True)
+            with st.form("add_user"):
+                u_id = st.text_input("User ID (unique)")
+                u_name = st.text_input("Full Name")
+                u_role = st.selectbox("Role", ["admin","staff","customer"])
+                u_mobile = st.text_input("Mobile (login)")
+                u_password = st.text_input("Password", type="password")
+                subu = st.form_submit_button("Save User")
+            if subu:
+                if not u_mobile or not u_name or not u_password or not u_id:
+                    st.error("All fields required.")
+                else:
+                    create_or_update_user(u_id, u_name, u_role, u_mobile, u_password)
+                    st.success("User saved.")
+                    st.experimental_rerun()
+            st.markdown("#### Reset Password")
+            with st.form("reset_pw"):
+                r_mobile = st.text_input("User mobile")
+                r_pw = st.text_input("New password", type="password")
+                r_sub = st.form_submit_button("Reset")
+            if r_sub:
+                usr = get_user_by_mobile(r_mobile)
+                if not usr:
+                    st.error("User not found.")
+                else:
+                    create_or_update_user(usr["user_id"], usr["name"], usr["role"], usr["mobile"], r_pw)
+                    st.success("Password reset.")
+                    st.experimental_rerun()
+
+# -----------------------
+# Run
+# -----------------------
+if st.session_state.user is None:
+    login_page()
+else:
+    app_ui()
