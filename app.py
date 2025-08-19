@@ -129,7 +129,7 @@ def upsert_inventory(item_id, item_name, category, unit, stock_qty, rate, min_qt
 
 def adjust_stock(item_id, delta):
     inv = list_inventory()
-    row = inv[inv["item_id"].astize(str) == str(item_id)]
+    row = inv[inv["item_id"].astype(str) == str(item_id)]
     if row.empty:
         return False, "Item not found"
     idx = row.index[0]
@@ -271,8 +271,8 @@ def app_ui():
         pays = load_csv(PAYMENTS_FILE, SCHEMA["payments"])
 
         total_exp = float(exp["amount"].astype(float).sum()) if not exp.empty else 0.0
-        total_sales = float(orders["total"].astize(float).sum()) if not orders.empty else 0.0
-        stock_value = float((inv["stock_qty"].astize(float) * inv["rate"].astize(float)).sum()) if not inv.empty else 0.0
+        total_sales = float(orders["total"].astype(float).sum()) if not orders.empty else 0.0
+        stock_value = float((inv["stock_qty"].astype(float) * inv["rate"].astype(float)).sum()) if not inv.empty else 0.0
         balances = compute_customer_balances()
         pending_total = float(balances["pending_balance"].sum()) if not balances.empty else 0.0
 
@@ -283,7 +283,7 @@ def app_ui():
         with c4: kpi_card("Pending Customer Balances", f"₹ {pending_total:,.2f}")
 
         st.markdown("#### Low stock alerts")
-        low = inv[inv["stock_qty"].astize(float) < inv["min_qty"].astize(float)]
+        low = inv[inv["stock_qty"].astype(float) < inv["min_qty"].astype(float)]
         if low.empty:
             st.info("No low-stock items.")
         else:
@@ -505,7 +505,7 @@ def app_ui():
                     st.error("Quantity must be positive")
                 else:
                     pid = item_options[s_item_label]
-                    item = inv[inv["item_id"].astize(str) == str(pid)].iloc[0]
+                    item = inv[inv["item_id"].astype(str) == str(pid)].iloc[0]
                     rate = float(item["rate"]) if use_item_rate else float(s_rate)
                     if rate <= 0:
                         st.error("Rate must be positive")
@@ -562,11 +562,11 @@ def app_ui():
         ord_f = drange(ords,"date")
         pay_f = drange(pays,"date")
         if filter_cust:
-            ord_f = ord_f[ord_f["customer_id"].astize(str)==str(filter_cust)]
-            pay_f = pay_f[pay_f["customer_id"].astize(str)==str(filter_cust)]
-        cash_sales = ord_f[ord_f["payment_mode"].str.lower()=="cash"]["total"].astize(float).sum() if not ord_f.empty else 0.0
-        total_sales = ord_f["total"].astize(float).sum() if not ord_f.empty else 0.0
-        total_exp = exp_f["amount"].astize(float).sum() if not exp_f.empty else 0.0
+            ord_f = ord_f[ord_f["customer_id"].astype(str)==str(filter_cust)]
+            pay_f = pay_f[pay_f["customer_id"].astype(str)==str(filter_cust)]
+        cash_sales = ord_f[ord_f["payment_mode"].str.lower()=="cash"]["total"].astype(float).sum() if not ord_f.empty else 0.0
+        total_sales = ord_f["total"].astype(float).sum() if not ord_f.empty else 0.0
+        total_exp = exp_f["amount"].astype(float).sum() if not exp_f.empty else 0.0
         net_cash = cash_sales - total_exp
         kk1,kk2,kk3,kk4 = st.columns(4)
         with kk1: kpi_card("Expenses (range)", f"₹ {total_exp:,.2f}")
