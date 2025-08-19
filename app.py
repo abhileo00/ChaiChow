@@ -6,6 +6,7 @@
 
 import os
 import hashlib
+import re
 from datetime import datetime, date, timedelta
 import pandas as pd
 import streamlit as st
@@ -311,9 +312,19 @@ def app_ui():
         # Stock Import Feature
         with st.expander("📤 Import Stock from CSV", expanded=False):
             st.info("Upload a CSV file to update inventory items and rates. File should have columns: 'Item Name', 'Category', 'Unit', 'Suppliers Rate'")
+            
+            # Create sample data programmatically
+            sample_data = {
+                'Item Name': ['Sample Item 1', 'Sample Item 2'],
+                'Category': ['Category A', 'Category B'],
+                'Unit': ['kg', 'pack'],
+                'Suppliers Rate': [100.0, 200.0]
+            }
+            sample_df = pd.DataFrame(sample_data)
+            
             st.download_button(
                 "📥 Download Sample CSV", 
-                data=pd.read_csv("Book1.csv").to_csv(index=False).encode('utf-8'),
+                data=sample_df.to_csv(index=False).encode('utf-8'),
                 file_name="inventory_import_sample.csv",
                 mime='text/csv',
             )
@@ -328,8 +339,16 @@ def app_ui():
                     
                     # Clean rate column
                     if 'Suppliers Rate' in df_import.columns:
-                        df_import['Suppliers Rate'] = df_import['Suppliers Rate'].astype(str).str.replace('?', '').str.replace(',', '').str.strip()
-                        df_import['Suppliers Rate'] = pd.to_numeric(df_import['Suppliers Rate'], errors='coerce').fillna(0)
+                        df_import['Suppliers Rate'] = (
+                            df_import['Suppliers Rate']
+                            .astype(str)
+                            .str.replace(r'[^\d.]', '', regex=True)  # Remove non-numeric characters
+                            .replace('', '0')  # Replace empty strings with 0
+                        )
+                        df_import['Suppliers Rate'] = pd.to_numeric(
+                            df_import['Suppliers Rate'], 
+                            errors='coerce'
+                        ).fillna(0)
                     
                     # Show preview
                     st.write("Preview of uploaded data:")
@@ -545,7 +564,7 @@ def app_ui():
         pay_f = drange(pays,"date")
         if filter_cust:
             ord_f = ord_f[ord_f["customer_id"].astype(str)==str(filter_cust)]
-            pay_f = pay_f[pay_f["customer_id"].astype(str)==str(filter_cust)]
+            pay_f = pay_f[pay_f["customer_id"].astize(str)==str(filter_cust)]
         cash_sales = ord_f[ord_f["payment_mode"].str.lower()=="cash"]["total"].astype(float).sum() if not ord_f.empty else 0.0
         total_sales = ord_f["total"].astype(float).sum() if not ord_f.empty else 0.0
         total_exp = exp_f["amount"].astype(float).sum() if not exp_f.empty else 0.0
