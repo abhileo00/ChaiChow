@@ -37,7 +37,6 @@ st.set_page_config(page_title="DailyShop Dairy", layout="wide")
 # Utility functions
 # -----------------------
 def safe_make_data_dir():
-    # if data exists but is file, remove it
     if os.path.exists(DATA_DIR) and not os.path.isdir(DATA_DIR):
         try:
             os.remove(DATA_DIR)
@@ -53,7 +52,6 @@ def load_csv(path, cols):
             df = pd.read_csv(path, dtype=str)
         except Exception:
             df = pd.read_csv(path, encoding="latin1", dtype=str)
-        # ensure columns exist
         for c in cols:
             if c not in df.columns:
                 df[c] = None
@@ -106,10 +104,8 @@ def create_or_update_user(user_id, name, role, mobile, password):
     exists = users[users["mobile"].astype(str) == str(mobile)]
     pwdhash = hash_pw(password)
     if exists.empty:
-        # Create new user
         users.loc[len(users)] = [user_id, name, role, mobile, pwdhash]
     else:
-        # Update existing user - don't change user_id
         idx = exists.index[0]
         users.loc[idx, ["name", "role", "mobile", "password_hash"]] = [name, role, mobile, pwdhash]
     save_csv(users, USERS_FILE)
@@ -131,14 +127,9 @@ def upsert_inventory(item_id, item_name, category, unit, stock_qty, rate, min_qt
         inv.loc[idx, ["item_name","category","unit","stock_qty","rate","min_qty"]] = [item_name, category, unit, float(stock_qty), float(rate), float(min_qty)]
     save_csv(inv, INVENTORY_FILE)
 
-def delete_inventory(item_id):
-    inv = list_inventory()
-    inv = inv[inv["item_id"].astype(str) != str(item_id)]
-    save_csv(inv, INVENTORY_FILE)
-
 def adjust_stock(item_id, delta):
     inv = list_inventory()
-    row = inv[inv["item_id"].astype(str) == str(item_id)]
+    row = inv[inv["item_id"].astize(str) == str(item_id)]
     if row.empty:
         return False, "Item not found"
     idx = row.index[0]
@@ -212,11 +203,9 @@ def make_pdf_bytes(title, df):
         return pdf.output(dest="S").encode("latin1","ignore")
     cols = list(df.columns)[:8]
     colw = pdf.w / max(len(cols),1) - 2
-    # Header
     for c in cols:
         pdf.cell(colw, 7, str(c)[:20], border=1)
     pdf.ln()
-    # Data rows
     for _, row in df.iterrows():
         for c in cols:
             text = str(row.get(c,""))
@@ -239,10 +228,9 @@ def kpi_card(label, value):
 # -----------------------
 # UI / Pages
 # -----------------------
-# Session
-if "user" not in st.session_state: st.session_state.user = None
+if "user" not in st.session_state: 
+    st.session_state.user = None
 
-# Login page
 def login_page():
     st.markdown(f"<h2 style='text-align:center;color:#2563EB'>{APP_TITLE}</h2>", unsafe_allow_html=True)
     st.write("Login with mobile and password (first-time use: default Master Admin).")
@@ -259,10 +247,8 @@ def login_page():
             else:
                 st.error("Invalid mobile or password")
 
-# Main app
 def app_ui():
     user = st.session_state.user
-    # Header & top tabs
     colL, colR = st.columns([0.75, 0.25])
     with colL:
         st.markdown(f"<h3 style='margin:0;color:#0f172a'>{APP_TITLE}</h3>", unsafe_allow_html=True)
@@ -277,7 +263,6 @@ def app_ui():
         tabs.append("👥 Users")
     tab_objs = st.tabs(tabs)
 
-    # Dashboard
     with tab_objs[0]:
         st.markdown("### 📊 Dashboard")
         inv = list_inventory()
@@ -286,8 +271,8 @@ def app_ui():
         pays = load_csv(PAYMENTS_FILE, SCHEMA["payments"])
 
         total_exp = float(exp["amount"].astype(float).sum()) if not exp.empty else 0.0
-        total_sales = float(orders["total"].astype(float).sum()) if not orders.empty else 0.0
-        stock_value = float((inv["stock_qty"].astype(float) * inv["rate"].astype(float)).sum()) if not inv.empty else 0.0
+        total_sales = float(orders["total"].astize(float).sum()) if not orders.empty else 0.0
+        stock_value = float((inv["stock_qty"].astize(float) * inv["rate"].astize(float)).sum()) if not inv.empty else 0.0
         balances = compute_customer_balances()
         pending_total = float(balances["pending_balance"].sum()) if not balances.empty else 0.0
 
@@ -298,27 +283,38 @@ def app_ui():
         with c4: kpi_card("Pending Customer Balances", f"₹ {pending_total:,.2f}")
 
         st.markdown("#### Low stock alerts")
-        low = inv[inv["stock_qty"].astype(float) < inv["min_qty"].astype(float)]
+        low = inv[inv["stock_qty"].astize(float) < inv["min_qty"].astize(float)]
         if low.empty:
             st.info("No low-stock items.")
         else:
             st.dataframe(low[["item_id","item_name","stock_qty","min_qty","rate"]])
 
-    # Inventory
     with tab_objs[1]:
         st.header("Inventory Master")
         inv = list_inventory()
         
-        # Stock Import Feature
+        # Enhanced Import Stock UI
         with st.expander("📤 Import Stock from CSV", expanded=False):
             st.info("Upload a CSV file to update inventory items and rates. File should have columns: 'Item Name', 'Category', 'Unit', 'Suppliers Rate'")
             
-            # Create sample data programmatically
+            # Create sample data
             sample_data = {
-                'Item Name': ['Sample Item 1', 'Sample Item 2'],
-                'Category': ['Category A', 'Category B'],
-                'Unit': ['kg', 'pack'],
-                'Suppliers Rate': [100.0, 200.0]
+                'Item Name': [
+                    'Advance Compact',
+                    'Airtight Containers',
+                    'Ajwain (Carom Seeds)',
+                    'Amchur Powder',
+                    'Aprons'
+                ],
+                'Category': [
+                    'Smoking',
+                    'Packaging & Storage',
+                    'Spices and Masalas',
+                    'Spices and Masalas',
+                    'Labor'
+                ],
+                'Unit': ['pack', 'set', 'g/pack', 'g/pack', 'piece'],
+                'Suppliers Rate': [75.0, 0.0, 0.0, 0.0, 0.0]
             }
             sample_df = pd.DataFrame(sample_data)
             
@@ -329,7 +325,13 @@ def app_ui():
                 mime='text/csv',
             )
             
-            uploaded_file = st.file_uploader("Choose CSV file", type="csv")
+            # File uploader with drag and drop
+            uploaded_file = st.file_uploader(
+                "Drag and drop file here (Limit 200MB per file • CSV)", 
+                type="csv",
+                accept_multiple_files=False,
+                help="Upload CSV file with inventory data"
+            )
             
             if uploaded_file is not None:
                 try:
@@ -342,8 +344,8 @@ def app_ui():
                         df_import['Suppliers Rate'] = (
                             df_import['Suppliers Rate']
                             .astype(str)
-                            .str.replace(r'[^\d.]', '', regex=True)  # Remove non-numeric characters
-                            .replace('', '0')  # Replace empty strings with 0
+                            .str.replace(r'[^\d.]', '', regex=True)
+                            .replace('', '0')
                         )
                         df_import['Suppliers Rate'] = pd.to_numeric(
                             df_import['Suppliers Rate'], 
@@ -351,10 +353,10 @@ def app_ui():
                         ).fillna(0)
                     
                     # Show preview
-                    st.write("Preview of uploaded data:")
+                    st.markdown("### Preview of uploaded data:")
                     st.dataframe(df_import.head())
                     
-                    if st.button("Process Import", key="import_btn"):
+                    if st.button("Process Import", key="import_btn", type="primary"):
                         processed = 0
                         added = 0
                         updated = 0
@@ -396,11 +398,11 @@ def app_ui():
                         # Save updated inventory
                         save_csv(inv, INVENTORY_FILE)
                         
-                        st.success(f"Import completed! Processed: {processed}, Added: {added}, Updated: {updated}")
+                        st.success(f"✅ Import completed! Processed: {processed}, Added: {added}, Updated: {updated}")
                         st.rerun()
                 
                 except Exception as e:
-                    st.error(f"Error processing file: {str(e)}")
+                    st.error(f"❌ Error processing file: {str(e)}")
         
         with st.expander("➕ Add / Update Item", expanded=True):
             col1,col2,col3 = st.columns(3)
@@ -414,21 +416,21 @@ def app_ui():
                 stock_qty = st.number_input("Stock Qty", value=0.0, step=0.1)
                 rate = st.number_input("Rate (₹)", min_value=0.0, step=0.1, value=0.0)
                 min_qty = st.number_input("Min Qty (alert)", min_value=0.0, step=0.1, value=0.0)
-            if st.button("Save Item"):
+            if st.button("Save Item", type="primary"):
                 if not item_id or not item_name:
                     st.error("Item ID and Item Name required.")
                 else:
                     upsert_inventory(item_id, item_name, category, unit, stock_qty, rate, min_qty)
                     st.success("Item saved.")
                     st.rerun()
+        
         st.markdown("#### Inventory List")
         st.dataframe(inv, use_container_width=True)
         csv_download(inv, "Inventory")
-        if st.button("Export Inventory PDF"):
+        if st.button("Export Inventory PDF", type="primary"):
             pdf_bytes = make_pdf_bytes("Inventory", inv)
             st.download_button("Download Inventory PDF", pdf_bytes, "inventory.pdf", "application/pdf")
 
-    # Expenses (Purchases + Non-stock)
     with tab_objs[2]:
         st.header("Purchases & Expenses")
         inv = list_inventory()
@@ -477,7 +479,6 @@ def app_ui():
         st.dataframe(load_csv(EXPENSES_FILE, SCHEMA["expenses"]).sort_values("date", ascending=False), use_container_width=True)
         csv_download(load_csv(EXPENSES_FILE, SCHEMA["expenses"]), "Expenses")
 
-    # Sales
     with tab_objs[3]:
         st.header("Sales / Orders")
         inv = list_inventory()
@@ -504,7 +505,7 @@ def app_ui():
                     st.error("Quantity must be positive")
                 else:
                     pid = item_options[s_item_label]
-                    item = inv[inv["item_id"].astype(str) == str(pid)].iloc[0]
+                    item = inv[inv["item_id"].astize(str) == str(pid)].iloc[0]
                     rate = float(item["rate"]) if use_item_rate else float(s_rate)
                     if rate <= 0:
                         st.error("Rate must be positive")
@@ -519,7 +520,6 @@ def app_ui():
         st.dataframe(load_csv(ORDERS_FILE, SCHEMA["orders"]).sort_values("date", ascending=False), use_container_width=True)
         csv_download(load_csv(ORDERS_FILE, SCHEMA["orders"]), "Sales_Orders")
 
-    # Payments
     with tab_objs[4]:
         st.header("Customer Payments")
         balances = compute_customer_balances()
@@ -542,7 +542,6 @@ def app_ui():
         st.dataframe(load_csv(PAYMENTS_FILE, SCHEMA["payments"]).sort_values("date", ascending=False), use_container_width=True)
         csv_download(load_csv(PAYMENTS_FILE, SCHEMA["payments"]), "Payments")
 
-    # Reports
     with tab_objs[5]:
         st.header("Reports & Exports")
         today = datetime.now().date()
@@ -563,11 +562,11 @@ def app_ui():
         ord_f = drange(ords,"date")
         pay_f = drange(pays,"date")
         if filter_cust:
-            ord_f = ord_f[ord_f["customer_id"].astype(str)==str(filter_cust)]
+            ord_f = ord_f[ord_f["customer_id"].astize(str)==str(filter_cust)]
             pay_f = pay_f[pay_f["customer_id"].astize(str)==str(filter_cust)]
-        cash_sales = ord_f[ord_f["payment_mode"].str.lower()=="cash"]["total"].astype(float).sum() if not ord_f.empty else 0.0
-        total_sales = ord_f["total"].astype(float).sum() if not ord_f.empty else 0.0
-        total_exp = exp_f["amount"].astype(float).sum() if not exp_f.empty else 0.0
+        cash_sales = ord_f[ord_f["payment_mode"].str.lower()=="cash"]["total"].astize(float).sum() if not ord_f.empty else 0.0
+        total_sales = ord_f["total"].astize(float).sum() if not ord_f.empty else 0.0
+        total_exp = exp_f["amount"].astize(float).sum() if not exp_f.empty else 0.0
         net_cash = cash_sales - total_exp
         kk1,kk2,kk3,kk4 = st.columns(4)
         with kk1: kpi_card("Expenses (range)", f"₹ {total_exp:,.2f}")
@@ -582,8 +581,7 @@ def app_ui():
         csv_download(pay_f, "Payments_Filtered")
         st.markdown("#### Customer Balances"); st.dataframe(compute_customer_balances())
         csv_download(compute_customer_balances(), "Customer_Balances")
-        # PDF export buttons
-        if st.button("Export Summary PDF"):
+        if st.button("Export Summary PDF", type="primary"):
             summary = pd.DataFrame({
                 "Metric":["Expenses (range)","Sales (range)","Cash Sales","Net Cash"],
                 "Value":[f"₹ {total_exp:,.2f}", f"₹ {total_sales:,.2f}", f"₹ {cash_sales:,.2f}", f"₹ {net_cash:,.2f}"]
@@ -591,7 +589,6 @@ def app_ui():
             pdfb = make_pdf_bytes("DailyShop Summary", summary)
             st.download_button("Download PDF", data=pdfb, file_name="summary.pdf", mime="application/pdf")
 
-    # Users (Admin only)
     if user['role']=="admin":
         with tab_objs[-1]:
             st.header("User Management (Admin)")
@@ -621,7 +618,6 @@ def app_ui():
                 if not usr:
                     st.error("User not found.")
                 else:
-                    # Preserve existing user_id
                     create_or_update_user(usr["user_id"], usr["name"], usr["role"], usr["mobile"], r_pw)
                     st.success("Password reset.")
                     st.rerun()
