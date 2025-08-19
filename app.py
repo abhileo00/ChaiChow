@@ -25,9 +25,11 @@ PAYMENTS_FILE = os.path.join(DATA_DIR, "payments.csv")
 
 SCHEMA = {
     "users": ["user_id", "name", "role", "mobile", "password_hash"],
-    "inventory": ["item_id", "item_name", "category", "unit", "stock_qty", "rate", "min_qty"],
+    # added selling_price (integer / multiples of 5)
+    "inventory": ["item_id", "item_name", "category", "unit", "stock_qty", "rate", "selling_price", "min_qty"],
+    # added selling_price to orders
+    "orders": ["date", "customer_id", "item_id", "item_name", "qty", "rate", "selling_price", "total", "payment_mode", "balance", "user_id", "remarks"],
     "expenses": ["date", "type", "category", "item", "item_id", "qty", "rate", "amount", "user_id", "remarks"],
-    "orders": ["date", "customer_id", "item_id", "item_name", "qty", "rate", "total", "payment_mode", "balance", "user_id", "remarks"],
     "payments": ["date", "customer_id", "amount", "mode", "remarks", "user_id"],
 }
 
@@ -47,6 +49,7 @@ def safe_make_data_dir():
 def new_df(cols): return pd.DataFrame(columns=cols)
 
 def load_csv(path, cols):
+    # returns DataFrame with all cols in cols list (creates missing columns)
     if os.path.exists(path):
         try:
             df = pd.read_csv(path, dtype=str)
@@ -55,6 +58,7 @@ def load_csv(path, cols):
         for c in cols:
             if c not in df.columns:
                 df[c] = None
+        # keep columns in order requested
         return df[cols]
     return new_df(cols)
 
@@ -87,6 +91,7 @@ def bootstrap_files():
                     (ORDERS_FILE, SCHEMA["orders"]),
                     (PAYMENTS_FILE, SCHEMA["payments"])]:
         if not os.path.exists(f):
+            # create an empty csv with the required header
             save_csv(new_df(cols), f)
 
 bootstrap_files()
@@ -112,19 +117,36 @@ def create_or_update_user(user_id, name, role, mobile, password):
 
 def list_inventory():
     inv = load_csv(INVENTORY_FILE, SCHEMA["inventory"])
-    inv["stock_qty"] = pd.to_numeric(inv["stock_qty"], errors="coerce").fillna(0)
-    inv["rate"] = pd.to_numeric(inv["rate"], errors="coerce").fillna(0.0)
-    inv["min_qty"] = pd.to_numeric(inv["min_qty"], errors="coerce").fillna(0)
+    # coerce numeric cols
+    inv["stock_qty"] = pd.to_numeric(inv.get("stock_qty", 0), errors="coerce").fillna(0.0)
+    inv["rate"] = pd.to_numeric(inv.get("rate", 0), errors="coerce").fillna(0.0)
+    # selling_price integers, multiples of 5 - store as int
+    inv["selling_price"] = pd.to_numeric(inv.get("selling_price", 0), errors="coerce").fillna(0).astype(int)
+    inv["min_qty"] = pd.to_numeric(inv.get("min_qty", 0), errors="coerce").fillna(0.0)
+    # ensure types consistent as strings for display elsewhere
+    for c in ["item_id", "item_name", "category", "unit"]:
+        if c not in inv.columns:
+            inv[c] = ""
     return inv
 
-def upsert_inventory(item_id, item_name, category, unit, stock_qty, rate, min_qty):
+def upsert_inventory(item_id, item_name, category, unit, stock_qty, rate, selling_price, min_qty):
     inv = list_inventory()
     exists = inv[inv["item_id"].astype(str) == str(item_id)]
+    # ensure numeric conversion
+    stock_qty = float(stock_qty or 0)
+    rate = float(rate or 0)
+    selling_price = int(float(selling_price or 0))
+    min_qty = float(min_qty or 0)
     if exists.empty:
-        inv.loc[len(inv)] = [item_id, item_name, category, unit, float(stock_qty), float(rate), float(min_qty)]
+        inv.loc[len(inv)] = [item_id, item_name, category, unit, stock_qty, rate, selling_price, min_qty]
     else:
         idx = exists.index[0]
-        inv.loc[idx, ["item_name","category","unit","stock_qty","rate","min_qty"]] = [item_name, category, unit, float(stock_qty), float(rate), float(min_qty)]
+        inv.loc[idx, ["item_name","category","unit","stock_qty","rate","selling_price","min_qty"]] = [item_name, category, unit, stock_qty, rate, selling_price, min_qty]
+    save_csv(inv, INVENTORY_FILE)
+
+def delete_inventory(item_id):
+    inv = list_inventory()
+    inv = inv[inv["item_id"].astype(str) != str(item_id)]
     save_csv(inv, INVENTORY_FILE)
 
 def adjust_stock(item_id, delta):
@@ -154,13 +176,17 @@ def record_purchase(dt, category, item_name, item_id, qty, rate, user_id="", rem
     ok, val = adjust_stock(item_id, qty)
     return ok, val
 
-def record_order(dt, customer_id, item_id, item_name, qty, rate, payment_mode, user_id="", remarks=""):
-    total = round(float(qty) * float(rate), 2)
-    balance = total if payment_mode.lower() == "credit" else 0.0
+def record_order(dt, customer_id, item_id, item_name, qty, rate, selling_price, payment_mode, user_id="", remarks=""):
+    # ensure selling_price and rate are numeric ints
+    qty = float(qty)
+    selling_price = int(float(selling_price))
+    rate = float(rate)
+    total = round(qty * selling_price, 2)
+    balance = total if str(payment_mode).strip().lower() == "credit" else 0.0
     df = load_csv(ORDERS_FILE, SCHEMA["orders"])
-    df.loc[len(df)] = [dt.isoformat() if isinstance(dt, (date, datetime)) else str(dt), customer_id, item_id, item_name, qty, rate, total, payment_mode, balance, user_id, remarks]
+    df.loc[len(df)] = [dt.isoformat() if isinstance(dt, (date, datetime)) else str(dt), customer_id, item_id, item_name, qty, rate, selling_price, total, payment_mode, balance, user_id, remarks]
     save_csv(df, ORDERS_FILE)
-    ok, new = adjust_stock(item_id, -float(qty))
+    ok, new = adjust_stock(item_id, -qty)
     return ok, new
 
 def record_payment(dt, customer_id, amount, mode, remarks="", user_id=""):
@@ -171,12 +197,16 @@ def record_payment(dt, customer_id, amount, mode, remarks="", user_id=""):
 def compute_customer_balances():
     orders = load_csv(ORDERS_FILE, SCHEMA["orders"])
     payments = load_csv(PAYMENTS_FILE, SCHEMA["payments"])
-    if orders.empty and payments.empty:
+    if (orders.empty or "payment_mode" not in orders.columns) and payments.empty:
         return new_df(["customer_id","credit_sales_total","payments_total","pending_balance"])
-    credits = orders[orders["payment_mode"].str.lower() == "credit"].copy()
-    credits["total"] = pd.to_numeric(credits["total"], errors="coerce").fillna(0.0)
+    # consider only credit orders
+    if "payment_mode" in orders.columns:
+        credits = orders[orders["payment_mode"].astype(str).str.lower() == "credit"].copy()
+    else:
+        credits = orders.copy()
+    credits["total"] = pd.to_numeric(credits.get("total", 0), errors="coerce").fillna(0.0)
     credit_sum = credits.groupby("customer_id")["total"].sum().rename("credit_sales_total")
-    payments["amount"] = pd.to_numeric(payments["amount"], errors="coerce").fillna(0.0)
+    payments["amount"] = pd.to_numeric(payments.get("amount", 0), errors="coerce").fillna(0.0)
     pay_sum = payments.groupby("customer_id")["amount"].sum().rename("payments_total")
     df = pd.concat([credit_sum, pay_sum], axis=1).fillna(0.0)
     df["pending_balance"] = df["credit_sales_total"] - df["payments_total"]
@@ -228,8 +258,14 @@ def kpi_card(label, value):
 # -----------------------
 # UI / Pages
 # -----------------------
-if "user" not in st.session_state: 
+if "user" not in st.session_state:
     st.session_state.user = None
+
+# session to hold editing state for inventory
+if "editing_item" not in st.session_state:
+    st.session_state.editing_item = None
+if "confirm_delete" not in st.session_state:
+    st.session_state.confirm_delete = None
 
 def login_page():
     st.markdown(f"<h2 style='text-align:center;color:#2563EB'>{APP_TITLE}</h2>", unsafe_allow_html=True)
@@ -247,6 +283,178 @@ def login_page():
             else:
                 st.error("Invalid mobile or password")
 
+def render_inventory_table(inv):
+    st.markdown("#### Inventory List (Edit here)")
+    # Build a display table but add Edit/Delete buttons per row
+    # We'll show a header
+    cols = ["item_id","item_name","category","unit","stock_qty","rate","selling_price","min_qty"]
+    header_cols = st.columns([1.2,2,1.2,1,1,1,1,1,0.8])
+    header_titles = ["Item ID","Item Name","Category","Unit","Stock","Rate (₹)","Sell Price (₹)","Min Qty","Actions"]
+    for hc, t in zip(header_cols, header_titles):
+        hc.markdown(f"**{t}**")
+    # iterate rows
+    for _, row in inv.iterrows():
+        c0,c1,c2,c3,c4,c5,c6,c7,c8 = st.columns([1.2,2,1.2,1,1,1,1,1,0.8])
+        c0.write(row.get("item_id",""))
+        c1.write(row.get("item_name",""))
+        c2.write(row.get("category",""))
+        c3.write(row.get("unit",""))
+        c4.write(f"{float(row.get('stock_qty',0)):.2f}")
+        c5.write(f"₹ {float(row.get('rate',0)):.2f}")
+        c6.write(f"₹ {int(row.get('selling_price',0))}")
+        c7.write(f"{float(row.get('min_qty',0)):.2f}")
+        # Action buttons
+        if c8.button("Edit", key=f"edit_{row['item_id']}"):
+            st.session_state.editing_item = row["item_id"]
+            st.session_state.confirm_delete = None
+            st.experimental_rerun()
+        if c8.button("Delete", key=f"del_{row['item_id']}"):
+            st.session_state.confirm_delete = row["item_id"]
+            st.session_state.editing_item = None
+            st.experimental_rerun()
+
+def inventory_editor_block():
+    inv = list_inventory()
+    # top-level controls: upload, add, table (edit/delete)
+    with st.expander("📤 Import Stock from CSV", expanded=False):
+        st.info("Upload a CSV file to update/add inventory items. Required columns: 'Item Name','Category','Unit','Suppliers Rate','Selling Price'")
+        sample_data = {
+            'Item Name': ['Advance Compact','Airtight Containers','Ajwain (Carom Seeds)'],
+            'Category': ['Smoking','Packaging & Storage','Spices and Masalas'],
+            'Unit': ['pack','set','g/pack'],
+            'Suppliers Rate': [75.0, 0.0, 0.0],
+            'Selling Price': [80, 10, 10]
+        }
+        sample_df = pd.DataFrame(sample_data)
+        st.download_button("📥 Download Sample CSV", data=sample_df.to_csv(index=False).encode('utf-8'), file_name="inventory_import_sample.csv", mime='text/csv')
+        uploaded_file = st.file_uploader("Drag and drop file here (CSV)", type="csv", accept_multiple_files=False)
+        if uploaded_file is not None:
+            try:
+                df_import = pd.read_csv(uploaded_file)
+                df_import.columns = df_import.columns.str.strip()
+                if 'Suppliers Rate' in df_import.columns:
+                    df_import['Suppliers Rate'] = df_import['Suppliers Rate'].astype(str).str.replace(r'[^\d.]', '', regex=True).replace('', '0')
+                    df_import['Suppliers Rate'] = pd.to_numeric(df_import['Suppliers Rate'], errors='coerce').fillna(0)
+                if 'Selling Price' in df_import.columns:
+                    df_import['Selling Price'] = df_import['Selling Price'].astype(str).str.replace(r'[^\d]', '', regex=True).replace('', '0')
+                    df_import['Selling Price'] = pd.to_numeric(df_import['Selling Price'], errors='coerce').fillna(0).astype(int)
+                st.markdown("### Preview")
+                st.dataframe(df_import.head())
+                if st.button("Process Import", key="process_import"):
+                    current_inv = inv.copy()
+                    processed = added = updated = 0
+                    errors = []
+                    for _, r in df_import.iterrows():
+                        try:
+                            name = str(r.get('Item Name','')).strip()
+                            if not name:
+                                continue
+                            category = str(r.get('Category','')).strip()
+                            unit = str(r.get('Unit','')).strip()
+                            rate = float(r.get('Suppliers Rate',0) or 0)
+                            selling_price = int(r.get('Selling Price',0) or 0)
+                            item_id = hashlib.md5(name.encode()).hexdigest()[:8]
+                            processed += 1
+                            existing = current_inv[current_inv['item_id'] == item_id]
+                            if existing.empty:
+                                new_row = {
+                                    "item_id": item_id,
+                                    "item_name": name,
+                                    "category": category,
+                                    "unit": unit,
+                                    "stock_qty": 0.0,
+                                    "rate": rate,
+                                    "selling_price": selling_price,
+                                    "min_qty": 0.0
+                                }
+                                current_inv = pd.concat([current_inv, pd.DataFrame([new_row])], ignore_index=True)
+                                added += 1
+                            else:
+                                idx = existing.index[0]
+                                current_inv.loc[idx, 'rate'] = rate
+                                current_inv.loc[idx, 'selling_price'] = selling_price
+                                updated += 1
+                        except Exception as e:
+                            errors.append(str(e))
+                    save_csv(current_inv, INVENTORY_FILE)
+                    if errors:
+                        st.error(f"Import completed with {len(errors)} errors")
+                    else:
+                        st.success(f"Import done. Processed {processed}, Added {added}, Updated {updated}")
+                    st.experimental_rerun()
+            except Exception as e:
+                st.error(f"Error processing file: {e}")
+
+    # Add new item quick form (but the user asked inventory editing only in table view — keep add optional)
+    with st.expander("➕ Add New Inventory Item (optional)", expanded=False):
+        with st.form("add_item_form", clear_on_submit=True):
+            in_item_name = st.text_input("Item Name *")
+            in_category = st.text_input("Category")
+            in_unit = st.text_input("Unit (kg/pack/pcs)")
+            in_stock = st.number_input("Stock Qty", value=0.0, step=0.1)
+            in_rate = st.number_input("Suppliers Rate (₹)", min_value=0.0, step=0.1, value=0.0)
+            in_selling_price = st.number_input("Selling Price (₹)", min_value=0, step=5, format="%d", value=0)
+            in_min = st.number_input("Min Qty (alert)", min_value=0.0, step=0.1, value=0.0)
+            submitted = st.form_submit_button("Add Item")
+            if submitted:
+                if not in_item_name:
+                    st.error("Name required")
+                else:
+                    iid = hashlib.md5(in_item_name.encode()).hexdigest()[:8]
+                    upsert_inventory(iid, in_item_name, in_category, in_unit, in_stock, in_rate, in_selling_price, in_min)
+                    st.success("Item added")
+                    st.experimental_rerun()
+
+    # Show editable table with Edit/Delete actions
+    inv = list_inventory()
+    if inv.empty:
+        st.info("No items in inventory.")
+    else:
+        # Render table with actions
+        render_inventory_table(inv)
+
+    # handle edit state
+    if st.session_state.editing_item:
+        item_id = st.session_state.editing_item
+        inv = list_inventory()
+        row = inv[inv["item_id"].astype(str) == str(item_id)]
+        if not row.empty:
+            r = row.iloc[0]
+            st.markdown("---")
+            st.markdown(f"### Edit Item: {r['item_name']} ({r['item_id']})")
+            with st.form("edit_item_form"):
+                e_name = st.text_input("Item Name", value=r["item_name"])
+                e_cat = st.text_input("Category", value=r["category"])
+                e_unit = st.text_input("Unit", value=r["unit"])
+                e_stock = st.number_input("Stock Qty", value=float(r["stock_qty"]), step=0.1)
+                e_rate = st.number_input("Suppliers Rate (₹)", min_value=0.0, value=float(r["rate"]), step=0.1)
+                e_sell = st.number_input("Selling Price (₹)", min_value=0, step=5, format="%d", value=int(r["selling_price"]))
+                e_min = st.number_input("Min Qty (alert)", min_value=0.0, step=0.1, value=float(r["min_qty"]))
+                sub = st.form_submit_button("Save Changes")
+            if sub:
+                upsert_inventory(item_id, e_name, e_cat, e_unit, e_stock, e_rate, e_sell, e_min)
+                st.success("Item updated.")
+                st.session_state.editing_item = None
+                st.experimental_rerun()
+        else:
+            st.warning("Item not found.")
+            st.session_state.editing_item = None
+
+    # handle delete confirmation
+    if st.session_state.confirm_delete:
+        did = st.session_state.confirm_delete
+        with st.expander("Confirm Delete", expanded=True):
+            st.warning(f"Delete inventory item: {did}? This will remove item and it cannot be undone.")
+            col_yes, col_no = st.columns([1,1])
+            if col_yes.button("Yes, Delete", key=f"confirm_del_{did}"):
+                delete_inventory(did)
+                st.success("Item deleted.")
+                st.session_state.confirm_delete = None
+                st.experimental_rerun()
+            if col_no.button("Cancel", key=f"cancel_del_{did}"):
+                st.session_state.confirm_delete = None
+                st.experimental_rerun()
+
 def app_ui():
     user = st.session_state.user
     colL, colR = st.columns([0.75, 0.25])
@@ -258,7 +466,8 @@ def app_ui():
             st.session_state.user = None
             st.rerun()
 
-    tabs = ["📊 Dashboard", "📦 Inventory", "💰 Expenses", "🛒 Sales", "💵 Payments", "🧾 Reports"]
+    # Tabs — changed Sales -> Menu
+    tabs = ["📊 Dashboard", "📦 Inventory", "💰 Expenses", "🍽️ Menu", "💵 Payments", "🧾 Reports"]
     if user["role"] == "admin":
         tabs.append("👥 Users")
     tab_objs = st.tabs(tabs)
@@ -291,158 +500,9 @@ def app_ui():
 
     with tab_objs[1]:
         st.header("Inventory Master")
+        inventory_editor_block()
+        # Offer CSV/PDF exports
         inv = list_inventory()
-        
-        # Enhanced Import Stock UI
-        with st.expander("📤 Import Stock from CSV", expanded=False):
-            st.info("Upload a CSV file to update inventory items and rates. File should have columns: 'Item Name', 'Category', 'Unit', 'Suppliers Rate'")
-            
-            # Create sample data
-            sample_data = {
-                'Item Name': [
-                    'Advance Compact',
-                    'Airtight Containers',
-                    'Ajwain (Carom Seeds)',
-                    'Amchur Powder',
-                    'Aprons'
-                ],
-                'Category': [
-                    'Smoking',
-                    'Packaging & Storage',
-                    'Spices and Masalas',
-                    'Spices and Masalas',
-                    'Labor'
-                ],
-                'Unit': ['pack', 'set', 'g/pack', 'g/pack', 'piece'],
-                'Suppliers Rate': [75.0, 0.0, 0.0, 0.0, 0.0]
-            }
-            sample_df = pd.DataFrame(sample_data)
-            
-            st.download_button(
-                "📥 Download Sample CSV", 
-                data=sample_df.to_csv(index=False).encode('utf-8'),
-                file_name="inventory_import_sample.csv",
-                mime='text/csv',
-            )
-            
-            # File uploader with drag and drop
-            uploaded_file = st.file_uploader(
-                "Drag and drop file here (Limit 200MB per file • CSV)", 
-                type="csv",
-                accept_multiple_files=False,
-                help="Upload CSV file with inventory data"
-            )
-            
-            if uploaded_file is not None:
-                try:
-                    # Read and clean the CSV
-                    df_import = pd.read_csv(uploaded_file)
-                    df_import.columns = df_import.columns.str.strip()
-                    
-                    # Clean rate column
-                    if 'Suppliers Rate' in df_import.columns:
-                        df_import['Suppliers Rate'] = (
-                            df_import['Suppliers Rate']
-                            .astype(str)
-                            .str.replace(r'[^\d.]', '', regex=True)
-                            .replace('', '0')
-                        )
-                        df_import['Suppliers Rate'] = pd.to_numeric(
-                            df_import['Suppliers Rate'], 
-                            errors='coerce'
-                        ).fillna(0)
-                    
-                    # Show preview
-                    st.markdown("### Preview of uploaded data:")
-                    st.dataframe(df_import.head())
-                    
-                    if st.button("Process Import", key="import_btn", type="primary"):
-                        processed = 0
-                        added = 0
-                        updated = 0
-                        errors = []
-                        
-                        # Create a copy of the current inventory to modify
-                        current_inv = inv.copy()
-                        
-                        for _, row in df_import.iterrows():
-                            try:
-                                item_name = str(row.get('Item Name', '')).strip()
-                                category = str(row.get('Category', '')).strip()
-                                unit = str(row.get('Unit', '')).strip()
-                                rate = float(row.get('Suppliers Rate', 0))
-                                
-                                if not item_name:
-                                    continue
-                                
-                                # Generate item ID from name
-                                item_id = hashlib.md5(item_name.encode()).hexdigest()[:8]
-                                
-                                # Check if item exists
-                                existing = current_inv[current_inv['item_id'] == item_id]
-                                processed += 1
-                                
-                                if existing.empty:
-                                    # Add new item directly to current_inv
-                                    new_row = {
-                                        "item_id": item_id,
-                                        "item_name": item_name,
-                                        "category": category,
-                                        "unit": unit,
-                                        "stock_qty": 0.0,
-                                        "rate": rate,
-                                        "min_qty": 0.0
-                                    }
-                                    current_inv = pd.concat([current_inv, pd.DataFrame([new_row])], ignore_index=True)
-                                    added += 1
-                                else:
-                                    # Update existing item rate
-                                    idx = existing.index[0]
-                                    current_inv.loc[idx, 'rate'] = rate
-                                    updated += 1
-                            except Exception as e:
-                                errors.append(f"Error processing row: {str(e)}")
-                        
-                        # Save the updated inventory
-                        save_csv(current_inv, INVENTORY_FILE)
-                        
-                        if errors:
-                            st.error(f"❌ Import completed with {len(errors)} errors")
-                            for error in errors:
-                                st.error(error)
-                        else:
-                            st.success(f"✅ Import completed! Processed: {processed}, Added: {added}, Updated: {updated}")
-                        
-                        # Rerun to refresh the UI
-                        st.rerun()
-                
-                except Exception as e:
-                    st.error(f"❌ Error processing file: {str(e)}")
-        
-        with st.expander("➕ Add / Update Item", expanded=True):
-            col1,col2,col3 = st.columns(3)
-            with col1:
-                item_id = st.text_input("Item ID *")
-                item_name = st.text_input("Item Name *")
-            with col2:
-                category = st.text_input("Category")
-                unit = st.text_input("Unit (kg/pack/pcs)")
-            with col3:
-                stock_qty = st.number_input("Stock Qty", value=0.0, step=0.1)
-                rate = st.number_input("Rate (₹)", min_value=0.0, step=0.1, value=0.0)
-                min_qty = st.number_input("Min Qty (alert)", min_value=0.0, step=0.1, value=0.0)
-            if st.button("Save Item", type="primary"):
-                if not item_id or not item_name:
-                    st.error("Item ID and Item Name required.")
-                else:
-                    upsert_inventory(item_id, item_name, category, unit, stock_qty, rate, min_qty)
-                    st.success("Item saved.")
-                    st.rerun()
-        
-        st.markdown("#### Inventory List")
-        # Reload inventory to show updates
-        inv = list_inventory()
-        st.dataframe(inv, use_container_width=True)
         csv_download(inv, "Inventory")
         if st.button("Export Inventory PDF", type="primary"):
             pdf_bytes = make_pdf_bytes("Inventory", inv)
@@ -496,46 +556,76 @@ def app_ui():
         st.dataframe(load_csv(EXPENSES_FILE, SCHEMA["expenses"]).sort_values("date", ascending=False), use_container_width=True)
         csv_download(load_csv(EXPENSES_FILE, SCHEMA["expenses"]), "Expenses")
 
+    # -----------------------
+    # Menu tab (replaces Sales)
+    # -----------------------
     with tab_objs[3]:
-        st.header("Sales / Orders")
+        st.header("🍽️ Menu / Orders")
         inv = list_inventory()
         if inv.empty:
             st.info("No inventory items.")
         else:
-            item_options = {f"{r['item_name']} ({r['item_id']})": r["item_id"] for _, r in inv.iterrows()}
-            with st.form("sales_form", clear_on_submit=True):
-                s_date = st.date_input("Date", datetime.now().date())
-                s_customer = st.text_input("Customer mobile")
-                s_item_label = st.selectbox("Item", options=["-- Select --"] + list(item_options.keys()))
-                s_qty = st.number_input("Qty", min_value=0.0, step=0.1, value=1.0)
-                use_item_rate = st.checkbox("Use item rate", value=True)
-                s_rate = st.number_input("Rate (₹)", min_value=0.0, step=0.1, value=0.0, disabled=use_item_rate)
-                s_payment = st.radio("Payment mode", ["Cash","Credit"], horizontal=True)
-                s_rem = st.text_input("Remarks")
-                s_sub = st.form_submit_button("Record Sale")
-            if s_sub:
-                if s_item_label == "-- Select --":
-                    st.error("Select item")
-                elif not s_customer:
-                    st.error("Customer mobile is required")
-                elif s_qty <= 0:
-                    st.error("Quantity must be positive")
+            # category -> item dependent dropdown
+            categories = sorted(inv["category"].astype(str).replace("", "Uncategorized").unique().tolist())
+            chosen_cat = st.selectbox("Select Category", options=["-- All --"] + categories)
+            if chosen_cat and chosen_cat != "-- All --":
+                filtered = inv[inv["category"].astype(str) == chosen_cat]
+            else:
+                filtered = inv.copy()
+
+            # Menu dropdown should show item_name only (no item code)
+            menu_items = filtered[["item_name","item_id","selling_price","rate"]].copy()
+            menu_items["label"] = menu_items["item_name"].astype(str)
+            item_labels = menu_items["label"].tolist()
+            selected_label = st.selectbox("Select Menu Item", options=["-- Select --"] + item_labels)
+            # find selected row if chosen
+            selected_row = None
+            if selected_label and selected_label != "-- Select --":
+                selected_row = menu_items[menu_items["label"] == selected_label].iloc[0]
+
+            with st.form("menu_order_form", clear_on_submit=True):
+                m_date = st.date_input("Date", datetime.now().date())
+                m_customer = st.text_input("Customer mobile")
+                m_qty = st.number_input("Qty", min_value=1, step=1, value=1, format="%d")
+                # default selling price from inventory (int), use step 5
+                default_sp = int(selected_row["selling_price"]) if selected_row is not None else 0
+                sp_disabled = st.checkbox("Use item selling price", value=True)
+                if sp_disabled:
+                    m_selling_price = st.number_input("Selling Price (₹)", min_value=0, step=5, format="%d", value=default_sp, disabled=True)
                 else:
-                    pid = item_options[s_item_label]
-                    item = inv[inv["item_id"].astype(str) == str(pid)].iloc[0]
-                    rate = float(item["rate"]) if use_item_rate else float(s_rate)
-                    if rate <= 0:
-                        st.error("Rate must be positive")
+                    m_selling_price = st.number_input("Selling Price (₹)", min_value=0, step=5, format="%d", value=default_sp)
+                # store suppliers rate as rate (optional)
+                default_rate = float(selected_row["rate"]) if selected_row is not None else 0.0
+                use_rate = st.checkbox("Record supplier rate as well", value=False)
+                if use_rate:
+                    m_rate = st.number_input("Suppliers Rate (₹)", min_value=0.0, step=0.1, value=default_rate)
+                else:
+                    m_rate = default_rate
+                m_payment = st.radio("Payment mode", ["Cash","Credit"], horizontal=True)
+                m_rem = st.text_input("Remarks")
+                m_submit = st.form_submit_button("Record Order")
+            if m_submit:
+                if not selected_row:
+                    st.error("Select a menu item.")
+                elif not m_customer:
+                    st.error("Customer mobile required.")
+                elif int(m_selling_price) <= 0:
+                    st.error("Selling price must be positive.")
+                else:
+                    pid = selected_row["item_id"]
+                    item_name = selected_row["item_name"]
+                    ok, msg = record_order(m_date, m_customer, pid, item_name, m_qty, m_rate, m_selling_price, m_payment, user_id=user["user_id"], remarks=m_rem)
+                    if ok:
+                        st.success("Order recorded & stock updated.")
+                        st.rerun()
                     else:
-                        ok, msg = record_order(s_date, s_customer, pid, item["item_name"], s_qty, rate, s_payment, user_id=user["user_id"], remarks=s_rem)
-                        if ok:
-                            st.success("Sale recorded & stock updated.")
-                            st.rerun()
-                        else:
-                            st.error(msg)
-        st.markdown("#### Recent Sales")
-        st.dataframe(load_csv(ORDERS_FILE, SCHEMA["orders"]).sort_values("date", ascending=False), use_container_width=True)
-        csv_download(load_csv(ORDERS_FILE, SCHEMA["orders"]), "Sales_Orders")
+                        st.error(msg)
+
+        st.markdown("#### Recent Orders")
+        ords = load_csv(ORDERS_FILE, SCHEMA["orders"])
+        # present selling_price column if present
+        st.dataframe(ords.sort_values("date", ascending=False), use_container_width=True)
+        csv_download(ords, "Orders")
 
     with tab_objs[4]:
         st.header("Customer Payments")
