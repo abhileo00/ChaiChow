@@ -229,23 +229,34 @@ def kpi_card(label, value):
     """, unsafe_allow_html=True)
 
 def get_editable_table(df, key):
+    # Make a copy of the dataframe to avoid modifying the original
+    display_df = df.copy()
+    
+    # Add a delete checkbox column initialized to False
+    display_df['Delete'] = False
+    
+    # Configure the column types for editing
+    column_config = {
+        "item_id": st.column_config.TextColumn("Item ID", disabled=True),
+        "item_name": st.column_config.TextColumn("Item Name"),
+        "category": st.column_config.TextColumn("Category"),
+        "unit": st.column_config.TextColumn("Unit"),
+        "stock_qty": st.column_config.NumberColumn("Stock Qty"),
+        "purchase_rate": st.column_config.NumberColumn("Purchase Rate (₹)"),
+        "selling_rate": st.column_config.NumberColumn("Selling Rate (₹)"),
+        "min_qty": st.column_config.NumberColumn("Min Qty"),
+        "Delete": st.column_config.CheckboxColumn("Delete")
+    }
+    
+    # Display the editable table
     edited_df = st.data_editor(
-        df,
+        display_df,
         key=f"editor_{key}",
         num_rows="dynamic",
         use_container_width=True,
-        column_config={
-            "item_id": st.column_config.TextColumn("Item ID", disabled=True),
-            "item_name": st.column_config.TextColumn("Item Name"),
-            "category": st.column_config.TextColumn("Category"),
-            "unit": st.column_config.TextColumn("Unit"),
-            "stock_qty": st.column_config.NumberColumn("Stock Qty"),
-            "purchase_rate": st.column_config.NumberColumn("Purchase Rate (₹)"),
-            "selling_rate": st.column_config.NumberColumn("Selling Rate (₹)"),
-            "min_qty": st.column_config.NumberColumn("Min Qty"),
-            "Delete": st.column_config.ButtonColumn("Delete")
-        }
+        column_config=column_config
     )
+    
     return edited_df
 
 # -----------------------
@@ -294,8 +305,8 @@ def app_ui():
         pays = load_csv(PAYMENTS_FILE, SCHEMA["payments"])
 
         total_exp = float(exp["amount"].astype(float).sum()) if not exp.empty else 0.0
-        total_sales = float(orders["total"].astype(float).sum()) if not orders.empty else 0.0
-        stock_value = float((inv["stock_qty"].astype(float) * inv["purchase_rate"].astype(float)).sum()) if not inv.empty else 0.0
+        total_sales = float(orders["total"].astize(float).sum()) if not orders.empty else 0.0
+        stock_value = float((inv["stock_qty"].astize(float) * inv["purchase_rate"].astize(float)).sum()) if not inv.empty else 0.0
         balances = compute_customer_balances()
         pending_total = float(balances["pending_balance"].sum()) if not balances.empty else 0.0
 
@@ -306,7 +317,7 @@ def app_ui():
         with c4: kpi_card("Pending Customer Balances", f"₹ {pending_total:,.2f}")
 
         st.markdown("#### Low stock alerts")
-        low = inv[inv["stock_qty"].astype(float) < inv["min_qty"].astype(float)]
+        low = inv[inv["stock_qty"].astize(float) < inv["min_qty"].astize(float)]
         if low.empty:
             st.info("No low-stock items.")
         else:
@@ -316,136 +327,40 @@ def app_ui():
         st.header("Inventory Master")
         inv = list_inventory()
         
-        # Enhanced Import Stock UI
         with st.expander("📤 Import Stock from CSV", expanded=False):
-            st.info("Upload a CSV file to update inventory items and rates. File should have columns: 'Item Name', 'Category', 'Unit', 'Purchase Rate', 'Selling Rate'")
-            
-            # Create sample data
-            sample_data = {
-                'Item Name': [
-                    'Advance Compact',
-                    'Airtight Containers',
-                    'Ajwain (Carom Seeds)',
-                    'Amchur Powder',
-                    'Aprons'
-                ],
-                'Category': [
-                    'Smoking',
-                    'Packaging & Storage',
-                    'Spices and Masalas',
-                    'Spices and Masalas',
-                    'Labor'
-                ],
-                'Unit': ['pack', 'set', 'g/pack', 'g/pack', 'piece'],
-                'Purchase Rate': [75.0, 0.0, 0.0, 0.0, 0.0],
-                'Selling Rate': [85.0, 0.0, 0.0, 0.0, 0.0]
-            }
-            sample_df = pd.DataFrame(sample_data)
-            
-            st.download_button(
-                "📥 Download Sample CSV", 
-                data=sample_df.to_csv(index=False).encode('utf-8'),
-                file_name="inventory_import_sample.csv",
-                mime='text/csv',
-            )
-            
-            # File uploader with drag and drop
-            uploaded_file = st.file_uploader(
-                "Drag and drop file here (Limit 200MB per file • CSV)", 
-                type="csv",
-                accept_multiple_files=False,
-                help="Upload CSV file with inventory data"
-            )
-            
+            st.info("Upload a CSV file to update inventory items and rates.")
+            uploaded_file = st.file_uploader("Choose CSV file", type="csv")
             if uploaded_file is not None:
                 try:
-                    # Read and clean the CSV
                     df_import = pd.read_csv(uploaded_file)
-                    df_import.columns = df_import.columns.str.strip()
-                    
-                    # Clean rate columns
-                    for rate_col in ['Purchase Rate', 'Selling Rate']:
-                        if rate_col in df_import.columns:
-                            df_import[rate_col] = (
-                                df_import[rate_col]
-                                .astype(str)
-                                .str.replace(r'[^\d.]', '', regex=True)
-                                .replace('', '0')
-                            )
-                            df_import[rate_col] = pd.to_numeric(
-                                df_import[rate_col], 
-                                errors='coerce'
-                            ).fillna(0)
-                    
-                    # Show preview
-                    st.markdown("### Preview of uploaded data:")
-                    st.dataframe(df_import.head())
-                    
-                    if st.button("Process Import", key="import_btn", type="primary"):
+                    st.dataframe(df_import)
+                    if st.button("Process Import"):
                         processed = 0
-                        added = 0
-                        updated = 0
-                        errors = []
-                        
-                        # Create a copy of the current inventory to modify
-                        current_inv = inv.copy()
-                        
                         for _, row in df_import.iterrows():
-                            try:
-                                item_name = str(row.get('Item Name', '')).strip()
-                                category = str(row.get('Category', '')).strip()
-                                unit = str(row.get('Unit', '')).strip()
-                                purchase_rate = float(row.get('Purchase Rate', 0))
-                                selling_rate = float(row.get('Selling Rate', 0))
-                                
-                                if not item_name:
-                                    continue
-                                
-                                # Generate item ID from name
-                                item_id = hashlib.md5(item_name.encode()).hexdigest()[:8]
-                                
-                                # Check if item exists
-                                existing = current_inv[current_inv['item_id'] == item_id]
-                                processed += 1
-                                
-                                if existing.empty:
-                                    # Add new item directly to current_inv
-                                    new_row = {
-                                        "item_id": item_id,
-                                        "item_name": item_name,
-                                        "category": category,
-                                        "unit": unit,
-                                        "stock_qty": 0.0,
-                                        "purchase_rate": purchase_rate,
-                                        "selling_rate": selling_rate,
-                                        "min_qty": 0.0
-                                    }
-                                    current_inv = pd.concat([current_inv, pd.DataFrame([new_row])], ignore_index=True)
-                                    added += 1
-                                else:
-                                    # Update existing item rates
-                                    idx = existing.index[0]
-                                    current_inv.loc[idx, 'purchase_rate'] = purchase_rate
-                                    current_inv.loc[idx, 'selling_rate'] = selling_rate
-                                    updated += 1
-                            except Exception as e:
-                                errors.append(f"Error processing row: {str(e)}")
-                        
-                        # Save the updated inventory
-                        save_csv(current_inv, INVENTORY_FILE)
-                        
-                        if errors:
-                            st.error(f"❌ Import completed with {len(errors)} errors")
-                            for error in errors:
-                                st.error(error)
-                        else:
-                            st.success(f"✅ Import completed! Processed: {processed}, Added: {added}, Updated: {updated}")
-                        
-                        # Rerun to refresh the UI
+                            item_name = str(row.get('Item Name', '')).strip()
+                            if not item_name:
+                                continue
+                            item_id = hashlib.md5(item_name.encode()).hexdigest()[:8]
+                            category = str(row.get('Category', '')).strip()
+                            unit = str(row.get('Unit', '')).strip()
+                            purchase_rate = float(row.get('Purchase Rate', 0))
+                            selling_rate = float(row.get('Selling Rate', 0))
+                            
+                            upsert_inventory(
+                                item_id=item_id,
+                                item_name=item_name,
+                                category=category,
+                                unit=unit,
+                                stock_qty=0,
+                                purchase_rate=purchase_rate,
+                                selling_rate=selling_rate,
+                                min_qty=0
+                            )
+                            processed += 1
+                        st.success(f"Imported {processed} items")
                         st.rerun()
-                
                 except Exception as e:
-                    st.error(f"❌ Error processing file: {str(e)}")
+                    st.error(f"Error processing file: {str(e)}")
         
         with st.expander("➕ Add / Update Item", expanded=True):
             col1,col2,col3 = st.columns(3)
@@ -469,35 +384,38 @@ def app_ui():
                     st.rerun()
         
         st.markdown("#### Inventory List")
-        # Reload inventory to show updates
         inv = list_inventory()
         
-        # Add delete button column
-        inv['Delete'] = False
-        
-        # Display editable table
-        edited_inv = get_editable_table(inv, "inventory")
-        
-        # Handle deletions
-        if not edited_inv.empty and 'Delete' in edited_inv.columns:
-            deleted_rows = edited_inv[edited_inv['Delete'] == True]
-            if not deleted_rows.empty:
-                inv = inv[~inv['item_id'].isin(deleted_rows['item_id'])]
-                save_csv(inv, INVENTORY_FILE)
-                st.success(f"Deleted {len(deleted_rows)} items.")
-                st.rerun()
-        
-        # Handle edits
-        if not edited_inv.empty:
-            if st.button("Save Changes", type="primary"):
+        if not inv.empty:
+            # Display editable table with delete checkboxes
+            edited_inv = get_editable_table(inv, "inventory")
+            
+            # Handle deletions
+            if not edited_inv.empty and 'Delete' in edited_inv.columns:
+                to_delete = edited_inv[edited_inv['Delete'] == True]
+                
+                if st.button("Delete Selected Items", type="primary"):
+                    if not to_delete.empty:
+                        # Remove deleted items from inventory
+                        inv = inv[~inv['item_id'].isin(to_delete['item_id'])]
+                        save_csv(inv, INVENTORY_FILE)
+                        st.success(f"Deleted {len(to_delete)} items.")
+                        st.rerun()
+                    else:
+                        st.warning("No items selected for deletion")
+            
+            # Handle edits (excluding the Delete column)
+            if st.button("Save All Changes", type="primary"):
                 # Remove the Delete column before saving
                 edited_inv = edited_inv.drop(columns=['Delete'], errors='ignore')
                 save_csv(edited_inv, INVENTORY_FILE)
                 st.success("Changes saved.")
                 st.rerun()
+        else:
+            st.info("No inventory items found.")
         
         csv_download(inv, "Inventory")
-        if st.button("Export Inventory PDF", type="primary"):
+        if st.button("Export Inventory PDF"):
             pdf_bytes = make_pdf_bytes("Inventory", inv)
             st.download_button("Download Inventory PDF", pdf_bytes, "inventory.pdf", "application/pdf")
 
@@ -591,7 +509,7 @@ def app_ui():
                     st.error("Quantity must be positive")
                 else:
                     pid = item_options[s_item_name]
-                    item = inv[inv["item_id"].astype(str) == str(pid)].iloc[0]
+                    item = inv[inv["item_id"].astize(str) == str(pid)].iloc[0]
                     rate = float(item["selling_rate"]) if use_item_rate else float(s_rate)
                     if rate <= 0:
                         st.error("Rate must be positive")
@@ -649,7 +567,7 @@ def app_ui():
         ord_f = drange(ords,"date")
         pay_f = drange(pays,"date")
         if filter_cust:
-            ord_f = ord_f[ord_f["customer_id"].astype(str)==str(filter_cust)]
+            ord_f = ord_f[ord_f["customer_id"].astize(str)==str(filter_cust)]
             pay_f = pay_f[pay_f["customer_id"].astize(str)==str(filter_cust)]
         cash_sales = ord_f[ord_f["payment_mode"].str.lower()=="cash"]["total"].astize(float).sum() if not ord_f.empty else 0.0
         total_sales = ord_f["total"].astize(float).sum() if not ord_f.empty else 0.0
