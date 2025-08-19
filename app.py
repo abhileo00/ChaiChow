@@ -105,10 +105,12 @@ def create_or_update_user(user_id, name, role, mobile, password):
     exists = users[users["mobile"].astype(str) == str(mobile)]
     pwdhash = hash_pw(password)
     if exists.empty:
+        # Create new user
         users.loc[len(users)] = [user_id, name, role, mobile, pwdhash]
     else:
+        # Update existing user - don't change user_id
         idx = exists.index[0]
-        users.loc[idx, ["user_id", "name", "role", "password_hash"]] = [user_id, name, role, pwdhash]
+        users.loc[idx, ["name", "role", "mobile", "password_hash"]] = [name, role, mobile, pwdhash]
     save_csv(users, USERS_FILE)
 
 def list_inventory():
@@ -166,7 +168,7 @@ def record_order(dt, customer_id, item_id, item_name, qty, rate, payment_mode, u
     df = load_csv(ORDERS_FILE, SCHEMA["orders"])
     df.loc[len(df)] = [dt.isoformat() if isinstance(dt, (date, datetime)) else str(dt), customer_id, item_id, item_name, qty, rate, total, payment_mode, balance, user_id, remarks]
     save_csv(df, ORDERS_FILE)
-    ok, new = adjust_stock(item_id, -qty)
+    ok, new = adjust_stock(item_id, -float(qty))
     return ok, new
 
 def record_payment(dt, customer_id, amount, mode, remarks="", user_id=""):
@@ -209,9 +211,11 @@ def make_pdf_bytes(title, df):
         return pdf.output(dest="S").encode("latin1","ignore")
     cols = list(df.columns)[:8]
     colw = pdf.w / max(len(cols),1) - 2
+    # Header
     for c in cols:
         pdf.cell(colw, 7, str(c)[:20], border=1)
     pdf.ln()
+    # Data rows
     for _, row in df.iterrows():
         for c in cols:
             text = str(row.get(c,""))
@@ -303,6 +307,82 @@ def app_ui():
     with tab_objs[1]:
         st.header("Inventory Master")
         inv = list_inventory()
+        
+        # Stock Import Feature
+        with st.expander("📤 Import Stock from CSV", expanded=False):
+            st.info("Upload a CSV file to update inventory items and rates. File should have columns: 'Item Name', 'Category', 'Unit', 'Suppliers Rate'")
+            st.download_button(
+                "📥 Download Sample CSV", 
+                data=pd.read_csv("Book1.csv").to_csv(index=False).encode('utf-8'),
+                file_name="inventory_import_sample.csv",
+                mime='text/csv',
+            )
+            
+            uploaded_file = st.file_uploader("Choose CSV file", type="csv")
+            
+            if uploaded_file is not None:
+                try:
+                    # Read and clean the CSV
+                    df_import = pd.read_csv(uploaded_file)
+                    df_import.columns = df_import.columns.str.strip()
+                    
+                    # Clean rate column
+                    if 'Suppliers Rate' in df_import.columns:
+                        df_import['Suppliers Rate'] = df_import['Suppliers Rate'].astype(str).str.replace('?', '').str.replace(',', '').str.strip()
+                        df_import['Suppliers Rate'] = pd.to_numeric(df_import['Suppliers Rate'], errors='coerce').fillna(0)
+                    
+                    # Show preview
+                    st.write("Preview of uploaded data:")
+                    st.dataframe(df_import.head())
+                    
+                    if st.button("Process Import", key="import_btn"):
+                        processed = 0
+                        added = 0
+                        updated = 0
+                        
+                        for _, row in df_import.iterrows():
+                            item_name = str(row.get('Item Name', '')).strip()
+                            category = str(row.get('Category', '')).strip()
+                            unit = str(row.get('Unit', '')).strip()
+                            rate = float(row.get('Suppliers Rate', 0))
+                            
+                            if not item_name:
+                                continue
+                            
+                            # Generate item ID from name
+                            item_id = hashlib.md5(item_name.encode()).hexdigest()[:8]
+                            
+                            # Check if item exists
+                            existing = inv[inv['item_id'] == item_id]
+                            processed += 1
+                            
+                            if existing.empty:
+                                # Add new item
+                                upsert_inventory(
+                                    item_id=item_id,
+                                    item_name=item_name,
+                                    category=category,
+                                    unit=unit,
+                                    stock_qty=0,
+                                    rate=rate,
+                                    min_qty=0
+                                )
+                                added += 1
+                            else:
+                                # Update existing item rate
+                                idx = existing.index[0]
+                                inv.loc[idx, 'rate'] = rate
+                                updated += 1
+                        
+                        # Save updated inventory
+                        save_csv(inv, INVENTORY_FILE)
+                        
+                        st.success(f"Import completed! Processed: {processed}, Added: {added}, Updated: {updated}")
+                        st.rerun()
+                
+                except Exception as e:
+                    st.error(f"Error processing file: {str(e)}")
+        
         with st.expander("➕ Add / Update Item", expanded=True):
             col1,col2,col3 = st.columns(3)
             with col1:
@@ -326,7 +406,8 @@ def app_ui():
         st.dataframe(inv, use_container_width=True)
         csv_download(inv, "Inventory")
         if st.button("Export Inventory PDF"):
-            st.download_button("Download Inventory PDF", make_pdf_bytes("Inventory", inv), "inventory.pdf", "application/pdf")
+            pdf_bytes = make_pdf_bytes("Inventory", inv)
+            st.download_button("Download Inventory PDF", pdf_bytes, "inventory.pdf", "application/pdf")
 
     # Expenses (Purchases + Non-stock)
     with tab_objs[2]:
@@ -347,6 +428,8 @@ def app_ui():
             if s1:
                 if p_item_label == "-- Select --":
                     st.error("Select an item.")
+                elif p_qty <= 0:
+                    st.error("Quantity must be positive")
                 else:
                     pid = p_item_label.split("(")[-1].replace(")","").strip()
                     ok, msg = record_purchase(p_date, p_category, p_item_label.split("(")[0].strip(), pid, p_qty, p_rate, user_id=user["user_id"], remarks=p_remarks)
@@ -365,9 +448,12 @@ def app_ui():
                 e_rem = st.text_input("Remarks")
                 s2 = st.form_submit_button("Record Expense")
             if s2:
-                record_expense(e_date, e_cat, e_item, e_amt, user_id=user["user_id"], remarks=e_rem)
-                st.success("Expense recorded.")
-                st.rerun()
+                if e_amt <= 0:
+                    st.error("Amount must be positive")
+                else:
+                    record_expense(e_date, e_cat, e_item, e_amt, user_id=user["user_id"], remarks=e_rem)
+                    st.success("Expense recorded.")
+                    st.rerun()
         st.markdown("#### Recent Purchases & Expenses")
         st.dataframe(load_csv(EXPENSES_FILE, SCHEMA["expenses"]).sort_values("date", ascending=False), use_container_width=True)
         csv_download(load_csv(EXPENSES_FILE, SCHEMA["expenses"]), "Expenses")
@@ -395,16 +481,21 @@ def app_ui():
                     st.error("Select item")
                 elif not s_customer:
                     st.error("Customer mobile is required")
+                elif s_qty <= 0:
+                    st.error("Quantity must be positive")
                 else:
                     pid = item_options[s_item_label]
                     item = inv[inv["item_id"].astype(str) == str(pid)].iloc[0]
                     rate = float(item["rate"]) if use_item_rate else float(s_rate)
-                    ok, msg = record_order(s_date, s_customer, pid, item["item_name"], s_qty, rate, s_payment, user_id=user["user_id"], remarks=s_rem)
-                    if ok:
-                        st.success("Sale recorded & stock updated.")
-                        st.rerun()
+                    if rate <= 0:
+                        st.error("Rate must be positive")
                     else:
-                        st.error(msg)
+                        ok, msg = record_order(s_date, s_customer, pid, item["item_name"], s_qty, rate, s_payment, user_id=user["user_id"], remarks=s_rem)
+                        if ok:
+                            st.success("Sale recorded & stock updated.")
+                            st.rerun()
+                        else:
+                            st.error(msg)
         st.markdown("#### Recent Sales")
         st.dataframe(load_csv(ORDERS_FILE, SCHEMA["orders"]).sort_values("date", ascending=False), use_container_width=True)
         csv_download(load_csv(ORDERS_FILE, SCHEMA["orders"]), "Sales_Orders")
@@ -511,6 +602,7 @@ def app_ui():
                 if not usr:
                     st.error("User not found.")
                 else:
+                    # Preserve existing user_id
                     create_or_update_user(usr["user_id"], usr["name"], usr["role"], usr["mobile"], r_pw)
                     st.success("Password reset.")
                     st.rerun()
