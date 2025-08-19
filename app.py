@@ -360,45 +360,60 @@ def app_ui():
                         processed = 0
                         added = 0
                         updated = 0
+                        errors = []
+                        
+                        # Create a copy of the current inventory to modify
+                        current_inv = inv.copy()
                         
                         for _, row in df_import.iterrows():
-                            item_name = str(row.get('Item Name', '')).strip()
-                            category = str(row.get('Category', '')).strip()
-                            unit = str(row.get('Unit', '')).strip()
-                            rate = float(row.get('Suppliers Rate', 0))
-                            
-                            if not item_name:
-                                continue
-                            
-                            # Generate item ID from name
-                            item_id = hashlib.md5(item_name.encode()).hexdigest()[:8]
-                            
-                            # Check if item exists
-                            existing = inv[inv['item_id'] == item_id]
-                            processed += 1
-                            
-                            if existing.empty:
-                                # Add new item
-                                upsert_inventory(
-                                    item_id=item_id,
-                                    item_name=item_name,
-                                    category=category,
-                                    unit=unit,
-                                    stock_qty=0,
-                                    rate=rate,
-                                    min_qty=0
-                                )
-                                added += 1
-                            else:
-                                # Update existing item rate
-                                idx = existing.index[0]
-                                inv.loc[idx, 'rate'] = rate
-                                updated += 1
+                            try:
+                                item_name = str(row.get('Item Name', '')).strip()
+                                category = str(row.get('Category', '')).strip()
+                                unit = str(row.get('Unit', '')).strip()
+                                rate = float(row.get('Suppliers Rate', 0))
+                                
+                                if not item_name:
+                                    continue
+                                
+                                # Generate item ID from name
+                                item_id = hashlib.md5(item_name.encode()).hexdigest()[:8]
+                                
+                                # Check if item exists
+                                existing = current_inv[current_inv['item_id'] == item_id]
+                                processed += 1
+                                
+                                if existing.empty:
+                                    # Add new item directly to current_inv
+                                    new_row = {
+                                        "item_id": item_id,
+                                        "item_name": item_name,
+                                        "category": category,
+                                        "unit": unit,
+                                        "stock_qty": 0.0,
+                                        "rate": rate,
+                                        "min_qty": 0.0
+                                    }
+                                    current_inv = pd.concat([current_inv, pd.DataFrame([new_row])], ignore_index=True)
+                                    added += 1
+                                else:
+                                    # Update existing item rate
+                                    idx = existing.index[0]
+                                    current_inv.loc[idx, 'rate'] = rate
+                                    updated += 1
+                            except Exception as e:
+                                errors.append(f"Error processing row: {str(e)}")
                         
-                        # Save updated inventory
-                        save_csv(inv, INVENTORY_FILE)
+                        # Save the updated inventory
+                        save_csv(current_inv, INVENTORY_FILE)
                         
-                        st.success(f"✅ Import completed! Processed: {processed}, Added: {added}, Updated: {updated}")
+                        if errors:
+                            st.error(f"❌ Import completed with {len(errors)} errors")
+                            for error in errors:
+                                st.error(error)
+                        else:
+                            st.success(f"✅ Import completed! Processed: {processed}, Added: {added}, Updated: {updated}")
+                        
+                        # Rerun to refresh the UI
                         st.rerun()
                 
                 except Exception as e:
@@ -425,6 +440,8 @@ def app_ui():
                     st.rerun()
         
         st.markdown("#### Inventory List")
+        # Reload inventory to show updates
+        inv = list_inventory()
         st.dataframe(inv, use_container_width=True)
         csv_download(inv, "Inventory")
         if st.button("Export Inventory PDF", type="primary"):
