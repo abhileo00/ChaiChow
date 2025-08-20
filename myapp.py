@@ -1,79 +1,41 @@
 import streamlit as st
 import pandas as pd
 import os
-import uuid
-from datetime import datetime
 
 # ========================
-# Config
+# Utility functions
 # ========================
-st.set_page_config(page_title="DailyShop Dairy", layout="wide")
-DATA_DIR = "data"
+def load_csv(file, columns):
+    if not os.path.exists(file):
+        pd.DataFrame(columns=columns).to_csv(file, index=False)
+    df = pd.read_csv(file)
+    for col in columns:
+        if col not in df.columns:
+            df[col] = ""
+    return df[columns]
 
-# ========================
-# Table structures
-# ========================
-TABLES = {
-    "users.csv": ["user_id", "name", "mobile", "password", "role", "tab", "active"],
-    "inventory.csv": ["item_id", "item_name", "unit", "quantity", "price"],
-    "purchases.csv": ["purchase_id", "date", "vendor", "item_id", "qty", "rate", "total"],
-    "sales.csv": ["order_id", "date", "customer", "item_id", "qty", "rate", "total", "payment_mode"],
-    "expenses.csv": ["expense_id", "date", "description", "amount"],
-    "payments.csv": ["payment_id", "date", "customer", "amount", "mode"],
-}
-
-os.makedirs(DATA_DIR, exist_ok=True)
-
-# ========================
-# Helpers
-# ========================
-def gen_id(prefix="id"):
-    return f"{prefix}_{uuid.uuid4().hex[:6]}"
-
-def load_csv(filename):
-    path = os.path.join(DATA_DIR, filename)
-    if not os.path.exists(path):
-        pd.DataFrame(columns=TABLES[filename]).to_csv(path, index=False)
-    df = pd.read_csv(path)
-    return df
-
-def save_csv(filename, df):
-    path = os.path.join(DATA_DIR, filename)
-    df.to_csv(path, index=False)
-
-# ========================
-# Ensure CSVs + default admin
-# ========================
-for fname in TABLES:
-    load_csv(fname)
-
-users_df = load_csv("users.csv")
-if users_df.empty:
-    default_admin = pd.DataFrame([{
-        "user_id": gen_id("u"),
-        "name": "Admin",
-        "mobile": "9999999999",
-        "password": "admin123",
-        "role": "admin",
-        "tab": "all",
-        "active": "Yes"
-    }])
-    save_csv("users.csv", pd.concat([users_df, default_admin], ignore_index=True))
+def save_csv(file, df):
+    df.to_csv(file, index=False)
 
 # ========================
 # Authentication
 # ========================
 def authenticate(mobile, password):
-    users = load_csv("users.csv")
+    users = load_csv("users.csv", ["mobile", "password", "role", "active", "tabs"])
     row = users[
         (users["mobile"].astype(str) == str(mobile)) &
-        (users["password"].astype(str) == str(password)) &
+        (users["password"] == password) &
         (users["active"].astype(str).str.lower() == "yes")
     ]
-    return row.iloc[0].to_dict() if not row.empty else None
+    if not row.empty:
+        return row.iloc[0].to_dict()
+    return None
 
 def require_login():
     if "user" not in st.session_state:
+        st.session_state.user = None
+
+    if st.session_state.user is None:
         st.title("DailyShop Dairy - Login")
         mobile = st.text_input("Mobile")
         password = st.text_input("Password", type="password")
@@ -81,76 +43,46 @@ def require_login():
             user = authenticate(mobile, password)
             if user:
                 st.session_state.user = user
+                st.success("Login successful")
                 st.rerun()
             else:
                 st.error("Invalid credentials or inactive user.")
         st.stop()
 
 # ========================
-# Modules
+# Pages
 # ========================
 def dashboard():
-    st.subheader("📊 Dashboard")
+    st.header("📊 Dashboard")
     st.info("Welcome to DailyShop Dairy")
 
 def inventory():
-    st.subheader("📦 Inventory")
-    df = load_csv("inventory.csv")
-    edited = st.data_editor(df, num_rows="dynamic", key="inv_edit")
-    if st.button("Save Inventory"):
-        save_csv("inventory.csv", edited)
-        st.success("Inventory saved")
+    st.header("📦 Inventory")
+    st.write("Manage inventory here.")
 
 def purchases():
-    st.subheader("🛒 Purchases")
-    df = load_csv("purchases.csv")
-    edited = st.data_editor(df, num_rows="dynamic", key="pur_edit")
-    if st.button("Save Purchases"):
-        save_csv("purchases.csv", edited)
-        st.success("Purchases saved")
+    st.header("🛒 Purchases")
+    st.write("Manage purchases here.")
 
 def sales():
-    st.subheader("🧾 Sales / Orders")
-    df = load_csv("sales.csv")
-    edited = st.data_editor(df, num_rows="dynamic", key="sales_edit")
-    if st.button("Save Sales"):
-        save_csv("sales.csv", edited)
-        st.success("Sales saved")
+    st.header("🧾 Sales")
+    st.write("Manage sales/orders here.")
 
 def expenses():
-    st.subheader("💸 Expenses")
-    df = load_csv("expenses.csv")
-    edited = st.data_editor(df, num_rows="dynamic", key="exp_edit")
-    if st.button("Save Expenses"):
-        save_csv("expenses.csv", edited)
-        st.success("Expenses saved")
+    st.header("💰 Expenses")
+    st.write("Track expenses here.")
 
 def payments():
-    st.subheader("💰 Payments")
-    df = load_csv("payments.csv")
-    edited = st.data_editor(df, num_rows="dynamic", key="pay_edit")
-    if st.button("Save Payments"):
-        save_csv("payments.csv", edited)
-        st.success("Payments saved")
+    st.header("💳 Payments")
+    st.write("Track payments here.")
 
 def reports():
-    st.subheader("📑 Reports")
-    sales = load_csv("sales.csv")
-    if sales.empty:
-        st.warning("No sales records.")
-    else:
-        sales["date"] = pd.to_datetime(sales["date"], errors="coerce")
-        daily = sales.groupby(sales["date"].dt.date)["total"].sum().reset_index()
-        st.write("### Daily Sales")
-        st.dataframe(daily)
+    st.header("📑 Reports")
+    st.write("Generate daily/weekly/monthly reports here.")
 
 def user_mgmt():
-    st.subheader("👥 User Management")
-    df = load_csv("users.csv")
-    edited = st.data_editor(df, num_rows="dynamic", key="users_edit")
-    if st.button("Save Users"):
-        save_csv("users.csv", edited)
-        st.success("Users saved")
+    st.header("👥 User Management")
+    st.write("Admin can manage users here.")
 
 # ========================
 # Main App
@@ -159,7 +91,7 @@ def main():
     require_login()
     role = str(st.session_state.user.get("role", "")).strip().lower()
 
-    # ✅ Admin has all tabs
+    # ✅ Admin gets all tabs
     if role == "admin":
         tabs = ["Dashboard", "Inventory", "Purchases", "Sales", "Expenses", "Payments", "Reports", "Users"]
     elif role == "staff":
@@ -169,7 +101,7 @@ def main():
     else:
         tabs = ["Dashboard"]
 
-    # ✅ Top navigation tabs
+    # ✅ Show top navigation tabs
     tab_objects = st.tabs(tabs)
 
     for i, t in enumerate(tabs):
