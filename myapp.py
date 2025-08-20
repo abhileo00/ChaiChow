@@ -97,7 +97,18 @@ bootstrap_files()
 # Business logic
 # -----------------------
 def get_user_by_mobile(m): ...
-def create_or_update_user(...): ...
+# Correct:
+def create_or_update_user(user_id, name, role, mobile, password):
+    users = load_csv(USERS_FILE, SCHEMA["users"])
+    pwdhash = hash_pw(password)
+    exists = users[users["mobile"].astype(str) == str(mobile)]
+    if exists.empty:
+        users.loc[len(users)] = [user_id, name, role, mobile, pwdhash]
+    else:
+        idx = exists.index[0]
+        users.loc[idx, ["user_id","name","role","mobile","password_hash"]] = [user_id, name, role, mobile, pwdhash]
+    save_csv(users, USERS_FILE)
+
 def list_inventory(): ...
 def upsert_inventory(...): ...
 def adjust_stock(...): ...
