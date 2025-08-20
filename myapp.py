@@ -5,9 +5,11 @@ import os
 # ========================
 # Utility functions
 # ========================
-def load_csv(file, columns):
+def load_csv(file, columns, default_data=None):
+    """Load CSV or create with default data"""
     if not os.path.exists(file):
-        pd.DataFrame(columns=columns).to_csv(file, index=False)
+        df = pd.DataFrame(default_data if default_data else [], columns=columns)
+        df.to_csv(file, index=False)
     df = pd.read_csv(file)
     for col in columns:
         if col not in df.columns:
@@ -20,8 +22,23 @@ def save_csv(file, df):
 # ========================
 # Authentication
 # ========================
+def init_users():
+    """Ensure at least one admin user exists"""
+    default_admin = [{
+        "mobile": "9999999999",
+        "password": "admin",
+        "role": "admin",
+        "active": "yes",
+        "tabs": "all"
+    }]
+    users = load_csv("users.csv", ["mobile", "password", "role", "active", "tabs"], default_admin)
+    if users.empty:
+        users = pd.DataFrame(default_admin)
+        save_csv("users.csv", users)
+    return users
+
 def authenticate(mobile, password):
-    users = load_csv("users.csv", ["mobile", "password", "role", "active", "tabs"])
+    users = init_users()
     row = users[
         (users["mobile"].astype(str) == str(mobile)) &
         (users["password"] == password) &
@@ -43,7 +60,7 @@ def require_login():
             user = authenticate(mobile, password)
             if user:
                 st.session_state.user = user
-                st.success("Login successful")
+                st.success("Login successful ✅")
                 st.rerun()
             else:
                 st.error("Invalid credentials or inactive user.")
