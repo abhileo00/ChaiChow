@@ -232,7 +232,7 @@ def compute_customer_balances():
     orders = load_csv(ORDERS_CSV, SCHEMA["orders"])
     pays = load_csv(PAYMENTS_CSV, SCHEMA["payments"])
     if orders.empty and pays.empty:
-        return new_df := pd.DataFrame(columns=["mobile","customer_name","credit_sales_total","payments_total","pending_balance"])
+        new_df = pd.DataFrame(columns=["mobile","customer_name","credit_sales_total","payments_total","pending_balance"]) return new_df
     # credit orders only
     orders["total"] = pd.to_numeric(orders["total"], errors="coerce").fillna(0)
     cred = orders[orders["payment_mode"].astype(str).str.lower() == "credit"].copy()
