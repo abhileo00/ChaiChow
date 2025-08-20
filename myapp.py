@@ -159,7 +159,7 @@ def main():
     require_login()
     role = str(st.session_state.user.get("role", "")).strip().lower()
 
-    # ✅ Admin has all access by default
+    # ✅ Admin has all tabs
     if role == "admin":
         tabs = ["Dashboard", "Inventory", "Purchases", "Sales", "Expenses", "Payments", "Reports", "Users"]
     elif role == "staff":
@@ -169,27 +169,27 @@ def main():
     else:
         tabs = ["Dashboard"]
 
-    if "last_tab" not in st.session_state or st.session_state.last_tab not in tabs:
-        st.session_state.last_tab = tabs[0]
+    # ✅ Top navigation tabs
+    tab_objects = st.tabs(tabs)
 
-    tab = st.sidebar.radio("Navigation", tabs, index=tabs.index(st.session_state.last_tab))
-    st.session_state.last_tab = tab
-
-    # Call functions for tabs
-    if tab == "Dashboard": dashboard()
-    elif tab == "Inventory": inventory()
-    elif tab == "Purchases": purchases()
-    elif tab == "Sales": sales()
-    elif tab == "Expenses": expenses()
-    elif tab == "Payments": payments()
-    elif tab == "Reports": reports()
-    elif tab == "Users": user_mgmt()
-
-    # ✅ Only admin can reset full session
-    if role == "admin" and st.sidebar.button("Reset App"):
-        st.session_state.clear()
-        st.rerun()
-
+    for i, t in enumerate(tabs):
+        with tab_objects[i]:
+            if t == "Dashboard":
+                dashboard()
+            elif t == "Inventory":
+                inventory()
+            elif t == "Purchases":
+                purchases()
+            elif t == "Sales":
+                sales()
+            elif t == "Expenses":
+                expenses()
+            elif t == "Payments":
+                payments()
+            elif t == "Reports":
+                reports()
+            elif t == "Users":
+                user_mgmt()
 
 if __name__ == "__main__":
     main()
