@@ -362,7 +362,7 @@ def login_page():
                     st.session_state.last_tab = last_tab
                 else:
                     st.session_state.last_tab = "Dashboard"
-                st.experimental_rerun()
+                st.rerun()
             else:
                 st.error("Invalid mobile or password or inactive user.")
 
