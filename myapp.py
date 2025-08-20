@@ -159,12 +159,13 @@ def main():
     require_login()
     role = str(st.session_state.user.get("role", "")).strip().lower()
 
+    # ✅ Admin has all access by default
     if role == "admin":
-        tabs = ["Dashboard","Inventory","Purchases","Sales","Expenses","Payments","Reports","Users"]
+        tabs = ["Dashboard", "Inventory", "Purchases", "Sales", "Expenses", "Payments", "Reports", "Users"]
     elif role == "staff":
-        tabs = ["Dashboard","Inventory","Purchases","Sales","Expenses","Payments","Reports"]
+        tabs = ["Dashboard", "Inventory", "Purchases", "Sales", "Expenses", "Payments", "Reports"]
     elif role == "customer":
-        tabs = ["Dashboard","Sales","Payments"]
+        tabs = ["Dashboard", "Sales", "Payments"]
     else:
         tabs = ["Dashboard"]
 
@@ -174,6 +175,7 @@ def main():
     tab = st.sidebar.radio("Navigation", tabs, index=tabs.index(st.session_state.last_tab))
     st.session_state.last_tab = tab
 
+    # Call functions for tabs
     if tab == "Dashboard": dashboard()
     elif tab == "Inventory": inventory()
     elif tab == "Purchases": purchases()
@@ -183,9 +185,11 @@ def main():
     elif tab == "Reports": reports()
     elif tab == "Users": user_mgmt()
 
+    # ✅ Only admin can reset full session
     if role == "admin" and st.sidebar.button("Reset App"):
         st.session_state.clear()
         st.rerun()
+
 
 if __name__ == "__main__":
     main()
