@@ -24,7 +24,19 @@ TABLES = {
 for fname, cols in TABLES.items():
     path = os.path.join(DATA_DIR, fname)
     if not os.path.exists(path):
-        pd.DataFrame(columns=cols).to_csv(path, index=False)
+        df = pd.DataFrame(columns=cols)
+        # add default admin user
+        if fname == "users.csv":
+            df = pd.DataFrame([{
+                "user_id": "U001",
+                "name": "Admin",
+                "mobile": "9999",
+                "password": "admin",
+                "role": "admin",
+                "tab": "all",
+                "active": "Yes"
+            }], columns=cols)
+        df.to_csv(path, index=False)
 
 # ------------------------
 # Utility Functions
@@ -54,7 +66,7 @@ def authenticate(mobile, password):
     users = load_csv("users.csv")
     row = users[(users["mobile"].astype(str) == str(mobile)) &
                 (users["password"] == password) &
-                (users["active"] == "Yes")]
+                (users["active"].str.lower() == "yes")]
     if not row.empty:
         return row.iloc[0].to_dict()
     return None
@@ -128,17 +140,17 @@ def payments():
 
 def reports():
     st.header("📑 Reports")
-    sales = load_csv("orders.csv")
+    sales_df = load_csv("orders.csv")
     expenses_df = load_csv("expenses.csv")
     payments_df = load_csv("payments.csv")
     st.subheader("Summary")
-    st.write("Total Sales:", sales["total"].astype(float).sum() if not sales.empty else 0)
+    st.write("Total Sales:", sales_df["total"].astype(float).sum() if not sales_df.empty else 0)
     st.write("Total Expenses:", expenses_df["amount"].astype(float).sum() if not expenses_df.empty else 0)
     st.write("Total Payments:", payments_df["amount"].astype(float).sum() if not payments_df.empty else 0)
 
 def user_mgmt():
     st.header("👥 User Management (Admin Only)")
-    if st.session_state.user["role"] != "admin":
+    if st.session_state.user["role"].lower() != "admin":
         st.error("Access denied.")
         return
     df = load_csv("users.csv")
@@ -154,26 +166,16 @@ def user_mgmt():
 def main():
     require_login()
 
-    role = st.session_state.user["role"]
-    user_tabs = st.session_state.user.get("tab", "")
-    if isinstance(user_tabs, str) and user_tabs.strip():
-        allowed_tabs = [t.strip() for t in user_tabs.split(",") if t.strip()]
-    else:
-        allowed_tabs = []
+    role = str(st.session_state.user.get("role", "")).strip().lower()
 
     if role == "admin":
         tabs = ["Dashboard","Inventory","Purchases","Sales","Expenses","Payments","Reports","Users"]
     elif role == "staff":
         tabs = ["Dashboard","Inventory","Purchases","Sales","Expenses","Payments","Reports"]
-    else:
+    elif role == "customer":
         tabs = ["Dashboard","Sales","Payments"]
-
-    if allowed_tabs:
-        tabs = [t for t in tabs if t.lower() in [a.lower() for a in allowed_tabs]]
-
-    if not tabs:
-        st.error("No tabs allowed for this user.")
-        st.stop()
+    else:
+        tabs = ["Dashboard"]  # fallback safe tab
 
     if "last_tab" not in st.session_state or st.session_state.last_tab not in tabs:
         st.session_state.last_tab = tabs[0]
