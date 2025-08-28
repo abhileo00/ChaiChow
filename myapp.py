@@ -1,168 +1,185 @@
-# app.py - DailyShop Dairy
 import streamlit as st
 import pandas as pd
-import os, hashlib, uuid, datetime
+import hashlib
+import os
+import uuid
+from datetime import datetime
+from fpdf import FPDF
 
-DATA_DIR = "data"
+# =============================
+# CONFIGURATION
+# =============================
+MASTER_ADMIN_ID = "root@admin"
+MASTER_ADMIN_PASS = "root123"  # (will be hashed on first run)
 
-# ---------- Utility ----------
-def ensure_data_files():
-    os.makedirs(DATA_DIR, exist_ok=True)
+# File paths
+USERS_FILE = "users.csv"
+MENU_FILE = "menu.csv"
+ORDERS_FILE = "orders.csv"
+CUSTOMERS_FILE = "customers.csv"
+EXPENSES_FILE = "expenses.csv"
 
-    default_files = {
-        "users.csv": ["user_id","name","mobile","password","role","tab","active"],
-        "inventory.csv": ["item_id","item_name","area","category","unit","stock_qty","rate","min_qty","sell_price"],
-        "purchases.csv": ["purchase_id","date","item_id","item_name","category","unit","qty","rate","total","remarks"],
-        "expenses.csv": ["expense_id","date","category","item","amount","remarks"],
-        "orders.csv": ["order_id","date","customer_name","mobile","item_id","item_name","category","qty","price","total","payment_mode","status"],
-        "payments.csv": ["payment_id","date","customer_name","mobile","amount","remarks"],
-    }
+# =============================
+# UTILS
+# =============================
+def hash_password(password: str) -> str:
+    return hashlib.sha256(password.encode()).hexdigest()
 
-    for file, cols in default_files.items():
-        path = os.path.join(DATA_DIR, file)
-        if not os.path.exists(path):
-            df = pd.DataFrame(columns=cols)
-            df.to_csv(path, index=False)
+def check_password(password: str, hashed: str) -> bool:
+    return hash_password(password) == hashed
 
-    # default admin
-    users = pd.read_csv(os.path.join(DATA_DIR,"users.csv"))
-    if users.empty:
-        admin_id = hashlib.md5("9999999999".encode()).hexdigest()
-        users.loc[len(users)] = [admin_id,"Admin","9999999999","admin123","admin",
-                                 "inv,pur,exp,ord,pay,rep,menu,bal,usr","Yes"]
-        users.to_csv(os.path.join(DATA_DIR,"users.csv"), index=False)
+def init_files():
+    if not os.path.exists(USERS_FILE):
+        df = pd.DataFrame(columns=["username", "password", "role"])
+        df.loc[len(df)] = [MASTER_ADMIN_ID, hash_password(MASTER_ADMIN_PASS), "MasterAdmin"]
+        df.to_csv(USERS_FILE, index=False)
+    if not os.path.exists(MENU_FILE):
+        pd.DataFrame(columns=["ItemID", "Name", "Category", "Unit", "Stock", "CostPrice", "SellingPrice", "MinQty"]).to_csv(MENU_FILE, index=False)
+    if not os.path.exists(ORDERS_FILE):
+        pd.DataFrame(columns=["OrderID", "Customer", "Mobile", "Items", "Total", "PaymentMode", "Timestamp"]).to_csv(ORDERS_FILE, index=False)
+    if not os.path.exists(CUSTOMERS_FILE):
+        pd.DataFrame(columns=["Name", "Mobile", "Email", "CreditBalance"]).to_csv(CUSTOMERS_FILE, index=False)
+    if not os.path.exists(EXPENSES_FILE):
+        pd.DataFrame(columns=["Date", "Category", "Amount", "Notes"]).to_csv(EXPENSES_FILE, index=False)
 
-def load_csv(name):
-    return pd.read_csv(os.path.join(DATA_DIR, name))
+init_files()
 
-def save_csv(name, df):
-    df.to_csv(os.path.join(DATA_DIR, name), index=False)
+# =============================
+# AUTHENTICATION
+# =============================
+def login(username, password):
+    users = pd.read_csv(USERS_FILE)
+    user = users[users["username"] == username]
+    if not user.empty:
+        if check_password(password, user.iloc[0]["password"]):
+            return user.iloc[0]["role"]
+    return None
 
-def make_id(prefix="id"):
-    return prefix + "_" + uuid.uuid4().hex[:8]
+# =============================
+# APP
+# =============================
+st.set_page_config(page_title="Restaurant & Café Management", layout="wide")
 
-# ---------- Authentication ----------
-def login_page():
-    st.title("🔐 DailyShop Dairy - Login")
+if "logged_in" not in st.session_state:
+    st.session_state.logged_in = False
+    st.session_state.role = None
+    st.session_state.username = None
 
-    mobile = st.text_input("Mobile")
+if not st.session_state.logged_in:
+    st.title("🍽️ Restaurant & Café Management App")
+    st.subheader("Login")
+    username = st.text_input("Username")
     password = st.text_input("Password", type="password")
     if st.button("Login"):
-        users = load_csv("users.csv")
-        user = users[(users["mobile"]==mobile)&(users["password"]==password)&(users["active"]=="Yes")]
-        if not user.empty:
-            st.session_state.user = user.iloc[0].to_dict()
+        role = login(username, password)
+        if role:
             st.session_state.logged_in = True
-            if "last_tab" not in st.session_state:
-                st.session_state.last_tab = "Dashboard"
-            st.success("Login successful ✅")
-            st.rerun()
+            st.session_state.role = role
+            st.session_state.username = username
+            st.success(f"Welcome {username} ({role})")
         else:
-            st.error("Invalid credentials or inactive user.")
+            st.error("Invalid credentials")
+else:
+    st.sidebar.title("Navigation")
+    role = st.session_state.role
 
-# ---------- Tabs ----------
-def dashboard():
-    st.subheader("📊 Dashboard")
-    st.write("Welcome,", st.session_state.user["name"])
-
-def inventory_tab():
-    st.subheader("📦 Inventory")
-    df = load_csv("inventory.csv")
-    st.data_editor(df, num_rows="dynamic")
-    if st.button("Save Inventory"):
-        save_csv("inventory.csv", df)
-        st.success("Saved ✅")
-
-def purchases_tab():
-    st.subheader("🛒 Purchases")
-    df = load_csv("purchases.csv")
-    st.data_editor(df, num_rows="dynamic")
-    if st.button("Save Purchases"):
-        save_csv("purchases.csv", df)
-        st.success("Saved ✅")
-
-def expenses_tab():
-    st.subheader("💸 Expenses")
-    df = load_csv("expenses.csv")
-    st.data_editor(df, num_rows="dynamic")
-    if st.button("Save Expenses"):
-        save_csv("expenses.csv", df)
-        st.success("Saved ✅")
-
-def orders_tab():
-    st.subheader("🧾 Orders")
-    df = load_csv("orders.csv")
-    st.data_editor(df, num_rows="dynamic")
-    if st.button("Save Orders"):
-        save_csv("orders.csv", df)
-        st.success("Saved ✅")
-
-def payments_tab():
-    st.subheader("💰 Payments")
-    df = load_csv("payments.csv")
-    st.data_editor(df, num_rows="dynamic")
-    if st.button("Save Payments"):
-        save_csv("payments.csv", df)
-        st.success("Saved ✅")
-
-def reports_tab():
-    st.subheader("📑 Reports")
-    st.info("Reports will be generated here.")
-
-def menu_tab():
-    st.subheader("🍽 Menu / Bookings")
-    st.info("Customer order booking interface.")
-
-def balance_tab():
-    st.subheader("📉 Customer Balance")
-    st.info("Balance/credit view for customers.")
-
-def user_mgmt_tab():
-    st.subheader("👥 User Management (Admin only)")
-    df = load_csv("users.csv")
-    st.data_editor(df, num_rows="dynamic")
-    if st.button("Save Users"):
-        save_csv("users.csv", df)
-        st.success("Users saved ✅")
-
-# ---------- Main ----------
-def main_app():
-    if not st.session_state.get("logged_in", False):
-        login_page()
-        return
-
-    role = st.session_state.user["role"]
-    allowed = st.session_state.user.get("tab","").replace(" ","").split(",")
-
-    tab_map = {
-        "Dashboard": dashboard,
-        "inv": inventory_tab,
-        "pur": purchases_tab,
-        "exp": expenses_tab,
-        "ord": orders_tab,
-        "pay": payments_tab,
-        "rep": reports_tab,
-        "menu": menu_tab,
-        "bal": balance_tab,
-        "usr": user_mgmt_tab,
-    }
-
-    # Admin always full access
-    if role=="admin":
-        show_tabs = list(tab_map.keys())
+    tabs = []
+    if role in ["MasterAdmin", "Admin"]:
+        tabs = ["Dashboard", "Menu & Inventory", "Orders", "Customers", "Expenses", "Reports", "User Management"]
+    elif role == "Manager":
+        tabs = ["Dashboard", "Orders", "Reports"]
+    elif role == "Cashier":
+        tabs = ["Orders", "Customers"]
+    elif role == "Waiter":
+        tabs = ["Orders"]
     else:
-        show_tabs = ["Dashboard"] + [k for k in tab_map if k in allowed]
+        tabs = ["Orders"]
 
-    tabs = st.tabs(show_tabs)
-    for i,tab_name in enumerate(show_tabs):
-        with tabs[i]:
-            tab_map[tab_name]()
+    choice = st.sidebar.radio("Go to", tabs)
 
-    st.sidebar.success(f"Logged in as {st.session_state.user['name']} ({role})")
-    if st.sidebar.button("Logout"):
-        st.session_state.clear()
-        st.rerun()
+    # DASHBOARD
+    if choice == "Dashboard":
+        st.title("📊 Dashboard")
+        orders = pd.read_csv(ORDERS_FILE)
+        customers = pd.read_csv(CUSTOMERS_FILE)
+        if not orders.empty:
+            st.metric("Total Sales", orders["Total"].astype(float).sum())
+            st.metric("Orders Today", len(orders[orders["Timestamp"].str.startswith(datetime.now().strftime("%Y-%m-%d"))]))
+        st.metric("Customers", len(customers))
 
-# ---------- Run ----------
-ensure_data_files()
-main_app()
+    # MENU & INVENTORY
+    elif choice == "Menu & Inventory":
+        st.title("📋 Menu & Inventory")
+        df = pd.read_csv(MENU_FILE)
+        st.dataframe(df)
+        with st.expander("Add New Item"):
+            name = st.text_input("Name")
+            cat = st.selectbox("Category", ["Drinks", "Snacks", "Meals", "Desserts", "Menu"])
+            unit = st.text_input("Unit")
+            stock = st.number_input("Stock", min_value=0)
+            cp = st.number_input("Cost Price", min_value=0.0)
+            sp = st.number_input("Selling Price", min_value=0.0)
+            minq = st.number_input("Min Qty Alert", min_value=0)
+            if st.button("Save Item"):
+                item_id = str(uuid.uuid4())[:8]
+                new_row = pd.DataFrame([[item_id, name, cat, unit, stock, cp, sp, minq]],
+                                       columns=df.columns)
+                df = pd.concat([df, new_row], ignore_index=True)
+                df.to_csv(MENU_FILE, index=False)
+                st.success("Item Added!")
+                st.experimental_rerun()
+
+    # ORDERS
+    elif choice == "Orders":
+        st.title("🛒 Place Order")
+        menu = pd.read_csv(MENU_FILE)
+        customers = pd.read_csv(CUSTOMERS_FILE)
+        if menu.empty:
+            st.warning("Menu is empty")
+        else:
+            cart = []
+            category = st.selectbox("Category", menu["Category"].unique())
+            items = menu[menu["Category"] == category]
+            item = st.selectbox("Item", items["Name"].tolist())
+            qty = st.number_input("Quantity", 1, 50)
+            if st.button("Add to Cart"):
+                cart.append((item, qty))
+            if cart:
+                st.write(cart)
+
+    # CUSTOMERS
+    elif choice == "Customers":
+        st.title("👥 Customers")
+        df = pd.read_csv(CUSTOMERS_FILE)
+        st.dataframe(df)
+
+    # EXPENSES
+    elif choice == "Expenses":
+        st.title("💰 Expenses")
+        df = pd.read_csv(EXPENSES_FILE)
+        st.dataframe(df)
+
+    # REPORTS
+    elif choice == "Reports":
+        st.title("📑 Reports")
+        orders = pd.read_csv(ORDERS_FILE)
+        if not orders.empty:
+            st.dataframe(orders)
+
+    # USER MANAGEMENT
+    elif choice == "User Management":
+        st.title("👤 User Management")
+        users = pd.read_csv(USERS_FILE)
+        st.dataframe(users)
+        if st.session_state.role == "MasterAdmin":
+            with st.expander("Add User"):
+                uname = st.text_input("Username")
+                pwd = st.text_input("Password", type="password")
+                role = st.selectbox("Role", ["Admin", "Manager", "Cashier", "Waiter"])
+                if st.button("Create User"):
+                    new_row = pd.DataFrame([[uname, hash_password(pwd), role]], columns=users.columns)
+                    users = pd.concat([users, new_row], ignore_index=True)
+                    users.to_csv(USERS_FILE, index=False)
+                    st.success("User Created!")
+
+    st.sidebar.button("Logout", on_click=lambda: st.session_state.update({"logged_in": False}))
